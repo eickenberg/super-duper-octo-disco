@@ -15,7 +15,6 @@ from nistats.experimental_paradigm import check_paradigm
 # from joblib import delayed, Parallel
 
 
-
 def _rbf_kernel(X, Y, gamma=1., tau=1.):
     X, Y = map(np.atleast_1d, (X, Y))
     diff_squared = (X.reshape(-1, 1) - Y.reshape(-1)) ** 2
@@ -127,7 +126,7 @@ def _der_marginal_likelihood(y, beta_values, beta_indices,
     alpha_weighted_cov, _ = _alpha_weighted_kernel(
         hrf_measurement_points, alphas, evaluation_points=evaluation_points,
         gamma=gamma)
-    # derivate
+    # derivative
     der_alpha_weighted_cov = _der_alpha_weighted_kernel(
         hrf_measurement_points, alphas, evaluation_points=evaluation_points,
         gamma=gamma)
@@ -142,17 +141,18 @@ def _der_marginal_likelihood(y, beta_values, beta_indices,
     shape = (len(all_betas), len(beta_indices))).tocsc()
 
     K = collapser.T.dot(collapser.T.dot(alpha_weighted_cov).T).T
-    der_K = collapser.T.dot(collapser.T.dot(der_alpha_weighted_cov).T).T
+    K += np.eye(K.shape[0]) * noise_level
 
-    inv_reg_K = np.linalg.inv(K + np.eye(K.shape[0]) * noise_level)
+    der_K_gamma = collapser.T.dot(collapser.T.dot(der_alpha_weighted_cov).T).T
+
+    inv_reg_K = np.linalg.inv(K)
     alpha = inv_reg_K.dot(y)
 
-    # optimize noise level, GCV
+    grad_gamma = 0.5 * np.trace(
+        (np.dot(alpha.reshape(-1, 1),
+                alpha.reshape(1, -1)) - inv_reg_K).dot(der_K_gamma))
 
-    grad = 0.5 * np.trace((np.dot(alpha.reshape(-1, 1),
-                                  alpha.reshape(1, -1)) - inv_reg_K).dot(der_K))
-
-    return grad
+    return grad_gamma
 
 
 def _get_design_from_hrf_measures(hrf_measures, beta_indices):
@@ -211,18 +211,19 @@ def get_hrf_gp(ys, evaluation_points, initial_beta, paradigm, hrf_length, t_r,
 
     betas = initial_beta.copy()
 
-    # Maximizing the log-likelihoo (gradient based optimization)
+    # Maximizing the log-likelihood (gradient based optimization)
     gamma_ = gamma
+    noise_ = noise_level
     for i in range(n_iter):
-        grad = _der_marginal_likelihood(ys, betas, beta_indices,
-                                        hrf_measurement_points, alphas,
-                                        evaluation_points=evaluation_points,
-                                        gamma=gamma_, noise_level=noise_level)
-        gamma_ += step_size * grad
+        grad_gamma = _der_marginal_likelihood(
+            ys, betas, beta_indices, hrf_measurement_points, alphas,
+            evaluation_points=evaluation_points, gamma=gamma_,
+            noise_level=noise_)
+        gamma_ += step_size * grad_gamma
         gamma_ = np.abs(gamma_)
 
         if verbose:
-            print "iter: %s gamma: %s" % (i, gamma_)
+            print "iter: %s, gamma: %s" % (i, gamma_)
 
     pre_cov, pre_cross_cov = \
         _alpha_weighted_kernel(hrf_measurement_points, alphas,
@@ -308,9 +309,10 @@ if __name__ == '__main__':
                                     time_offset=10, modulation=None, seed=seed)
     # GP parameters
     hrf_length = 24
-    gamma = 1.
+    gamma = 10.
     time_offset = 10
     max_iter = 10
+    # noise_level = 0.1
 
     gp = SuperDuperGP(paradigm, hrf_length=hrf_length, modulation=modulation,
                       gamma=gamma, max_iter=max_iter,
