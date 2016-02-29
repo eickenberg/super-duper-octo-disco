@@ -199,7 +199,7 @@ def _get_hrf_values_from_betas(y, beta_values, alpha_weighted_kernel_cov,
 
 def get_hrf_gp(ys, evaluation_points, initial_beta, paradigm, hrf_length, t_r,
                time_offset, gamma, max_iter, noise_level, n_iter=100,
-               step_size=0.05):
+               step_size=0.05, verbose=True):
 
     hrf_measurement_points, visible_events, alphas, beta_indices, unique_events = \
         _get_hrf_measurements(paradigm, hrf_length=hrf_length, t_r=t_r,
@@ -218,6 +218,10 @@ def get_hrf_gp(ys, evaluation_points, initial_beta, paradigm, hrf_length, t_r,
                                         gamma=gamma_, noise_level=noise_level)
         gamma_ += step_size * grad
         gamma_ = np.abs(gamma_)
+
+        if verbose:
+            print i, gamma_
+
 
     pre_cov, pre_cross_cov = \
         _alpha_weighted_kernel(hrf_measurement_points, alphas,
@@ -310,8 +314,7 @@ if __name__ == '__main__':
 
     gp = SuperDuperGP(paradigm, hrf_length=hrf_length, modulation=modulation,
                       gamma=gamma, max_iter=max_iter,
-                      noise_level=noise_level, time_offset=time_offset,
-                      boundary_conditions=boundary_conditions)
+                      noise_level=noise_level, time_offset=time_offset)
 
     design = design[event_types].values  # forget about drifts for the moment
     beta = rng.randn(len(event_types))
