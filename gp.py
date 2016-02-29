@@ -147,6 +147,8 @@ def _der_marginal_likelihood(y, beta_values, beta_indices,
     inv_reg_K = np.linalg.inv(K + np.eye(K.shape[0]) * noise_level)
     alpha = inv_reg_K.dot(y)
 
+    # optimize noise level, GCV
+
     grad = 0.5 * np.trace((np.dot(alpha.reshape(-1, 1),
                                   alpha.reshape(1, -1)) - inv_reg_K).dot(der_K))
 
@@ -220,8 +222,7 @@ def get_hrf_gp(ys, evaluation_points, initial_beta, paradigm, hrf_length, t_r,
         gamma_ = np.abs(gamma_)
 
         if verbose:
-            print i, gamma_
-
+            print "n_iter: %s gamma: %s" % (i, gamma_)
 
     pre_cov, pre_cross_cov = \
         _alpha_weighted_kernel(hrf_measurement_points, alphas,
@@ -230,7 +231,6 @@ def get_hrf_gp(ys, evaluation_points, initial_beta, paradigm, hrf_length, t_r,
     all_hrf_values = []
     all_designs = []
     all_betas = []
-
 
     for i in range(max_iter):
         hrf_values = _get_hrf_values_from_betas(ys, betas, pre_cov,
@@ -296,7 +296,7 @@ if __name__ == '__main__':
     t_r = 2
     jitter_min, jitter_max = -1, 1
     event_types = ['evt_1', 'evt_2', 'evt_3', 'evt_4', 'evt_5', 'evt_6']
-    noise_level = .03
+    noise_level = .05
 
     paradigm, design, modulation, measurement_time = \
         generate_spikes_time_series(n_events=n_events,
