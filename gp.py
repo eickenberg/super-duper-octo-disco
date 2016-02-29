@@ -221,12 +221,13 @@ def get_hrf_gp(ys, evaluation_points, initial_beta, paradigm, hrf_length, t_r,
         marginal, grad_gamma = _der_marginal_likelihood(
             ys, betas, beta_indices, hrf_measurement_points, alphas,
             evaluation_points=evaluation_points, gamma=gamma_,
-            noise_level=noise_)
+            noise_level=noise_level)
         gamma_ += step_size * grad_gamma
         gamma_ = np.abs(gamma_)
 
         if verbose:
-            print "iter: %s, gamma: %s" % (i, gamma_)
+            print "iter: %s, gamma: %s, marginal log-likelihood: %s" % \
+                (i, gamma_, marginal)
 
     pre_cov, pre_cross_cov = \
         _alpha_weighted_kernel(hrf_measurement_points, alphas,
@@ -312,7 +313,7 @@ if __name__ == '__main__':
                                     time_offset=10, modulation=None, seed=seed)
     # GP parameters
     hrf_length = 24
-    gamma = 10.
+    gamma = 0.1
     time_offset = 10
     max_iter = 10
     # noise_level = 0.1
