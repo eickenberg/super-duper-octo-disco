@@ -222,7 +222,7 @@ def get_hrf_gp(ys, evaluation_points, initial_beta, paradigm, hrf_length, t_r,
         gamma_ = np.abs(gamma_)
 
         if verbose:
-            print "n_iter: %s gamma: %s" % (i, gamma_)
+            print "iter: %s gamma: %s" % (i, gamma_)
 
     pre_cov, pre_cross_cov = \
         _alpha_weighted_kernel(hrf_measurement_points, alphas,
