@@ -1,4 +1,4 @@
-"""Gaussian process for hrf estimation (sandbox)
+"""Gaussian process for hrf estimaton (sandbox)
 This implementation is based on scikit learn and Michael's implementation
 
 """
@@ -169,9 +169,9 @@ def _get_hrf_values_from_betas(y, beta_values, alpha_weighted_kernel_cov,
     return mu_bar
 
 
-def my_func(ys, evaluation_points, initial_beta, paradigm, hrf_length, t_r,
-            time_offset, kernel, gamma, coef0, degree, max_iter, noise_level,
-            boundary_conditions):
+def get_hrf_gp(ys, evaluation_points, initial_beta, paradigm, hrf_length, t_r,
+               time_offset, kernel, gamma, coef0, degree, max_iter, noise_level,
+               boundary_conditions):
 
     hrf_measurement_points, visible_events, alphas, beta_indices, unique_events = \
         _get_hrf_measurements(paradigm, hrf_length=hrf_length, t_r=t_r,
@@ -231,13 +231,13 @@ class SuperDuperGP(BaseEstimator):
 
     def fit(self, ys, evaluation_points=None, initial_beta=None):
 
-        output = my_func(ys, evaluation_points=evaluation_points,
-                         initial_beta=initial_beta, paradigm=self.paradigm,
-                         hrf_length=self.hrf_length, t_r=self.t_r,
-                         noise_level=self.noise_level, kernel=self.kernel,
-                         coef0=self.coef0, degree=self.degree, gamma=self.gamma,
-                         time_offset=self.time_offset, max_iter=self.max_iter,
-                         boundary_conditions=self.boundary_conditions)
+        output = get_hrf_gp(ys, evaluation_points=evaluation_points,
+                            initial_beta=initial_beta, paradigm=self.paradigm,
+                            hrf_length=self.hrf_length, t_r=self.t_r,
+                            noise_level=self.noise_level, kernel=self.kernel,
+                            coef0=self.coef0, degree=self.degree, gamma=self.gamma,
+                            time_offset=self.time_offset, max_iter=self.max_iter,
+                            boundary_conditions=self.boundary_conditions)
         return output
 
 
@@ -254,7 +254,7 @@ if __name__ == '__main__':
     t_r = 2
     jitter_min, jitter_max = -1, 1
     event_types = ['evt_1', 'evt_2', 'evt_3', 'evt_4', 'evt_5', 'evt_6']
-    noise_level = 1.0
+    noise_level = .01
 
     paradigm, design, modulation, measurement_time = \
         generate_spikes_time_series(n_events=n_events,
