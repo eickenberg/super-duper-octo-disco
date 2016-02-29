@@ -265,7 +265,7 @@ if __name__ == '__main__':
                                     event_types=event_types, period_cut=64,
                                     time_offset=10, modulation=None, seed=seed)
 
-    hrf_length = 32
+    hrf_length = 24
     gamma = 10.
     time_offset = 10
     max_iter = 10
