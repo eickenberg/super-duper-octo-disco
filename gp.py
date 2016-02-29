@@ -141,18 +141,22 @@ def _der_marginal_likelihood(y, beta_values, beta_indices,
     shape = (len(all_betas), len(beta_indices))).tocsc()
 
     K = collapser.T.dot(collapser.T.dot(alpha_weighted_cov).T).T
-    K += np.eye(K.shape[0]) * noise_level
+    K_y = K +  np.eye(K.shape[0]) * noise_level
 
     der_K_gamma = collapser.T.dot(collapser.T.dot(der_alpha_weighted_cov).T).T
 
-    inv_reg_K = np.linalg.inv(K)
+    inv_reg_K = np.linalg.inv(K_y)
     alpha = inv_reg_K.dot(y)
 
     grad_gamma = 0.5 * np.trace(
         (np.dot(alpha.reshape(-1, 1),
                 alpha.reshape(1, -1)) - inv_reg_K).dot(der_K_gamma))
 
-    return grad_gamma
+    s_det, log_det = np.linalg.slogdet(K_y)
+    marginal = -0.5 * y.dot(inv_reg_K.dot(y)) \
+        - 0.5 * (s_det * log_det) - y.shape[0] / 2 * np.log(2*np.pi)
+
+    return marginal, grad_gamma
 
 
 def _get_design_from_hrf_measures(hrf_measures, beta_indices):
@@ -213,9 +217,8 @@ def get_hrf_gp(ys, evaluation_points, initial_beta, paradigm, hrf_length, t_r,
 
     # Maximizing the log-likelihood (gradient based optimization)
     gamma_ = gamma
-    noise_ = noise_level
     for i in range(n_iter):
-        grad_gamma = _der_marginal_likelihood(
+        marginal, grad_gamma = _der_marginal_likelihood(
             ys, betas, beta_indices, hrf_measurement_points, alphas,
             evaluation_points=evaluation_points, gamma=gamma_,
             noise_level=noise_)
