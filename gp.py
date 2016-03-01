@@ -214,8 +214,8 @@ def _get_hrf_values_from_betas(y, beta_values, alpha_weighted_kernel_cov,
 
 def get_hrf_gp(ys, hrf_measurement_points, visible_events, alphas, beta_indices,
                initial_beta, unique_events, evaluation_points,
-               gamma, max_iter, noise_level, n_iter=150,
-               step_size=0.5, verbose=True):
+               gamma, max_iter, noise_level, n_iter=10,
+               step_size=0.25, verbose=True):
 
     betas = initial_beta.copy()
 
@@ -231,7 +231,7 @@ def get_hrf_gp(ys, hrf_measurement_points, visible_events, alphas, beta_indices,
         gamma_ += step_size * grad_gamma
 
         if verbose:
-            print "iter: %s, gamma: %s, marginal log-likelihood: %s" % \
+            print "iter: %s, gamma: %s, log-likelihood: %s" % \
                 (i, gamma_, marginal)
 
     pre_cov, pre_cross_cov = \
@@ -256,11 +256,6 @@ def get_hrf_gp(ys, hrf_measurement_points, visible_events, alphas, beta_indices,
 
     return (betas, (hrf_measurement_points, hrf_values), all_hrf_values,
             all_designs, all_betas)
-
-
-# class SSGP(GaussianProcess):
-#     def __init__(self, ):
-#         pass
 
 
 class SuperDuperGP(BaseEstimator):
@@ -329,12 +324,11 @@ if __name__ == '__main__':
                                     time_offset=10, modulation=None, seed=seed)
     # GP parameters
     hrf_length = 24
-    gamma = 10
+    gamma = 0.1
     time_offset = 10
     max_iter = 10
     # noise_level = 0.1
 
-    # gp = SSGP()
     gp = SuperDuperGP(paradigm, hrf_length=hrf_length, modulation=modulation,
                       gamma=gamma, max_iter=max_iter,
                       noise_level=noise_level, time_offset=time_offset)
@@ -343,8 +337,6 @@ if __name__ == '__main__':
     beta = rng.randn(len(event_types))
 
     ys = design.dot(beta) + rng.randn(design.shape[0]) * noise_level
-    # ys[0] = 0.
-    # ys[-1] = 0.
 
     hx, hy = gp.fit(ys)
 
