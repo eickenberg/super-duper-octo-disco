@@ -14,6 +14,8 @@ from scipy.sparse import coo_matrix
 from nistats.experimental_paradigm import check_paradigm
 # from joblib import delayed, Parallel
 
+MACHINE_EPSILON = np.finfo(np.double).eps
+
 
 def _rbf_kernel(X, Y, gamma=1., tau=1.):
     X, Y = map(np.atleast_1d, (X, Y))
@@ -88,6 +90,8 @@ def _alpha_weighted_kernel(hrf_measurement_points, alphas,
     alphas = np.concatenate(alphas)
     alpha_weight = alphas[:, np.newaxis] * alphas
 
+
+    # XXX Call a general kernel
     Sigma_22 = _rbf_kernel(hrf_measurement_points, hrf_measurement_points,
                            gamma=gamma)
     Sigma_cross = _rbf_kernel(evaluation_points, hrf_measurement_points,
@@ -118,10 +122,9 @@ def _der_alpha_weighted_kernel(hrf_measurement_points, alphas,
     return der_cov
 
 
-def _der_marginal_likelihood(y, beta_values, beta_indices,
-                             hrf_measurement_points, alphas,
-                             evaluation_points=None, gamma=1.,
-                             noise_level=0.0001):
+# XXX change this function name, I have no idea how to call it
+def _get_data(ys, beta_values, beta_indices, hrf_measurement_points, alphas,
+              evaluation_points=None, gamma=1., noise_level=0.0001):
     # weighted kernel
     alpha_weighted_cov, _ = _alpha_weighted_kernel(
         hrf_measurement_points, alphas, evaluation_points=evaluation_points,
@@ -141,22 +144,28 @@ def _der_marginal_likelihood(y, beta_values, beta_indices,
     shape = (len(all_betas), len(beta_indices))).tocsc()
 
     K = collapser.T.dot(collapser.T.dot(alpha_weighted_cov).T).T
-    K_y = K +  np.eye(K.shape[0]) * noise_level
+    K_reg = K + np.eye(K.shape[0]) * noise_level
 
-    der_K_gamma = collapser.T.dot(collapser.T.dot(der_alpha_weighted_cov).T).T
+    der_K = collapser.T.dot(collapser.T.dot(der_alpha_weighted_cov).T).T
 
-    inv_reg_K = np.linalg.inv(K_y)
-    alpha = inv_reg_K.dot(y)
+    inv_K_reg = np.linalg.inv(K_reg)
+    alpha = inv_K_reg.dot(ys)
 
-    grad_gamma = 0.5 * np.trace(
+    return alpha, K_reg, inv_K_reg, der_K
+
+
+def get_loglikelihood(ys, alpha, K_reg, inv_K_reg, der_K):
+    log_det = np.log(np.linalg.det(K_reg) + MACHINE_EPSILON)
+    loglikelihood = -0.5 * ys.dot(inv_K_reg.dot(ys)) \
+        - 0.5 * (log_det) - ys.shape[0] / 2 * np.log(2*np.pi)
+    return loglikelihood
+
+
+def get_der_loglikelihood(alpha, K_reg, inv_K_reg, der_K):
+    der_loglikelihood = 0.5 * np.trace(
         (np.dot(alpha.reshape(-1, 1),
-                alpha.reshape(1, -1)) - inv_reg_K).dot(der_K_gamma))
-
-    s_det, log_det = np.linalg.slogdet(K_y)
-    marginal = -0.5 * y.dot(inv_reg_K.dot(y)) \
-        - 0.5 * (s_det * log_det) - y.shape[0] / 2 * np.log(2*np.pi)
-
-    return marginal, grad_gamma
+                alpha.reshape(1, -1)) - inv_K_reg).dot(der_K))
+    return der_loglikelihood
 
 
 def _get_design_from_hrf_measures(hrf_measures, beta_indices):
@@ -203,27 +212,23 @@ def _get_hrf_values_from_betas(y, beta_values, alpha_weighted_kernel_cov,
     return mu_bar
 
 
-def get_hrf_gp(ys, evaluation_points, initial_beta, paradigm, hrf_length, t_r,
-               time_offset, gamma, max_iter, noise_level, n_iter=100,
-               step_size=0.05, verbose=True):
-
-    hrf_measurement_points, visible_events, alphas, beta_indices, unique_events = \
-        _get_hrf_measurements(paradigm, hrf_length=hrf_length, t_r=t_r,
-                              time_offset=time_offset)
-    if initial_beta is None:
-        initial_beta = np.ones(len(unique_events))
+def get_hrf_gp(ys, hrf_measurement_points, visible_events, alphas, beta_indices,
+               initial_beta, unique_events, evaluation_points,
+               gamma, max_iter, noise_level, n_iter=150,
+               step_size=0.5, verbose=True):
 
     betas = initial_beta.copy()
 
     # Maximizing the log-likelihood (gradient based optimization)
     gamma_ = gamma
     for i in range(n_iter):
-        marginal, grad_gamma = _der_marginal_likelihood(
+        alpha, K_reg, inv_K_reg, der_K = _get_data(
             ys, betas, beta_indices, hrf_measurement_points, alphas,
-            evaluation_points=evaluation_points, gamma=gamma_,
-            noise_level=noise_level)
+            evaluation_points=None, gamma=gamma_, noise_level=noise_level)
+
+        marginal =  get_loglikelihood(ys, alpha, K_reg, inv_K_reg, der_K)
+        grad_gamma = get_der_loglikelihood(alpha, K_reg, inv_K_reg, der_K)
         gamma_ += step_size * grad_gamma
-        gamma_ = np.abs(gamma_)
 
         if verbose:
             print "iter: %s, gamma: %s, marginal log-likelihood: %s" % \
@@ -253,6 +258,11 @@ def get_hrf_gp(ys, evaluation_points, initial_beta, paradigm, hrf_length, t_r,
             all_designs, all_betas)
 
 
+# class SSGP(GaussianProcess):
+#     def __init__(self, ):
+#         pass
+
+
 class SuperDuperGP(BaseEstimator):
 
     def __init__(self, paradigm, hrf_length=32., t_r=2, time_offset=10,
@@ -271,12 +281,18 @@ class SuperDuperGP(BaseEstimator):
 
     def fit(self, ys, evaluation_points=None, initial_beta=None):
 
-        output = get_hrf_gp(ys, evaluation_points=evaluation_points,
-                            initial_beta=initial_beta, paradigm=self.paradigm,
-                            hrf_length=self.hrf_length, t_r=self.t_r,
-                            noise_level=self.noise_level, gamma=self.gamma,
-                            time_offset=self.time_offset,
-                            max_iter=self.max_iter)
+        ys = np.atleast_1d(ys)
+
+        hrf_measurement_points, visible_events, alphas, beta_indices, unique_events = \
+            _get_hrf_measurements(self.paradigm, hrf_length=self.hrf_length,
+                                  t_r=self.t_r, time_offset=self.time_offset)
+        if initial_beta is None:
+            initial_beta = np.ones(len(unique_events))
+
+        output = get_hrf_gp(ys, hrf_measurement_points, visible_events, alphas,
+                            beta_indices, initial_beta, unique_events,
+                            evaluation_points, gamma, max_iter=self.max_iter,
+                            noise_level=self.noise_level)
 
         hrf_measurement_points = np.concatenate(output[1][0])
         order = np.argsort(hrf_measurement_points)
@@ -301,7 +317,7 @@ if __name__ == '__main__':
     t_r = 2
     jitter_min, jitter_max = -1, 1
     event_types = ['evt_1', 'evt_2', 'evt_3', 'evt_4', 'evt_5', 'evt_6']
-    noise_level = .05
+    noise_level = .01
 
     paradigm, design, modulation, measurement_time = \
         generate_spikes_time_series(n_events=n_events,
@@ -313,11 +329,12 @@ if __name__ == '__main__':
                                     time_offset=10, modulation=None, seed=seed)
     # GP parameters
     hrf_length = 24
-    gamma = 0.1
+    gamma = 10
     time_offset = 10
     max_iter = 10
     # noise_level = 0.1
 
+    # gp = SSGP()
     gp = SuperDuperGP(paradigm, hrf_length=hrf_length, modulation=modulation,
                       gamma=gamma, max_iter=max_iter,
                       noise_level=noise_level, time_offset=time_offset)
@@ -326,6 +343,8 @@ if __name__ == '__main__':
     beta = rng.randn(len(event_types))
 
     ys = design.dot(beta) + rng.randn(design.shape[0]) * noise_level
+    # ys[0] = 0.
+    # ys[-1] = 0.
 
     hx, hy = gp.fit(ys)
 
