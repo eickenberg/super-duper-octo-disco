@@ -17,8 +17,8 @@ from nistats.hemodynamic_models import spm_hrf, glover_hrf
 import warnings
 
 # from joblib import delayed, Parallel
+# MACHINE_EPS = np.finfo(np.double).eps
 
-MACHINE_EPS = np.finfo(np.double).eps
 
 def _rbf_kernel(X, Y, gamma=1., tau=1.):
     X, Y = map(np.atleast_1d, (X, Y))
@@ -166,7 +166,8 @@ def _get_hrf_values_from_betas(ys, beta_values, alpha_weighted_cov,
 # XXX change the name of this function
 def _get_data(ys, beta_values, beta_indices, hrf_measurement_points, alphas,
               evaluation_points=None, gamma=1., tau=1., sigma_noise=0.0001):
-
+    """Find the HRF given the measurements
+    """
     # weighted kernels
     alpha_weighted_cov, alpha_weighted_cross_cov, K_22 = \
         _alpha_weighted_kernel(hrf_measurement_points, alphas,
@@ -182,6 +183,8 @@ def _get_data(ys, beta_values, beta_indices, hrf_measurement_points, alphas,
 
 def _get_betas_and_hrf(ys, betas, pre_cov, pre_cross_cov, beta_indices,
                        sigma_noise, n_iter=10, K_22=None):
+    """Alternate optimization: Find HRF, build a new design matrix and repeat
+    """
     all_hrf_values = []
     all_hrf_var = []
     all_designs = []
@@ -200,6 +203,7 @@ def _get_betas_and_hrf(ys, betas, pre_cov, pre_cross_cov, beta_indices,
         all_designs.append(design)
         all_betas.append(betas)
 
+    import pdb; pdb.set_trace()  # XXX BREAKPOINT
     return (betas, hrf_values, hrf_var, all_hrf_values, all_hrf_var, all_designs,
             all_betas)
 
@@ -241,7 +245,7 @@ def constr2(params, *args):
 
 def get_hrf_fit(ys, hrf_measurement_points, visible_events, alphas, beta_indices,
                 initial_beta, unique_events, gamma_0, tau_0, sigma_noise_0,
-                evaluation_points=None, max_iter=10, n_iter=20):
+                evaluation_points=None, max_iter=20, n_iter=20):
 
     betas = initial_beta.copy()
     # Finding the parameters ##################################################
@@ -270,7 +274,7 @@ class SuperDuperGP(BaseEstimator):
 
     def __init__(self, hrf_length=32., t_r=2, time_offset=10,
                  modulation=None, sigma_noise_0=0.001, tau_0=1., gamma_0=1.,
-                 copy=True, max_iter=10, hrf_model=None):
+                 copy=True, fmin_max_iter=10, n_iter=10, hrf_model=None):
         self.t_r = t_r
         self.hrf_length = hrf_length
         self.modulation = modulation
@@ -279,13 +283,13 @@ class SuperDuperGP(BaseEstimator):
         self.gamma_0 = gamma_0
         self.tau_0 = tau_0
         self.copy = copy
-        self.max_iter = max_iter
+        self.fmin_max_iter = fmin_max_iter
+        self.n_iter = n_iter
         self.hrf_model = hrf_model
 
     def fit(self, ys, paradigm, initial_beta=None):
 
         ys = np.atleast_1d(ys)
-        # hrf_0 = _get_hrf_model(self.hrf_model, self.hrf_length)
 
         hrf_measurement_points, visible_events, alphas, beta_indices, unique_events = \
             _get_hrf_measurements(paradigm, hrf_length=self.hrf_length,
@@ -296,7 +300,7 @@ class SuperDuperGP(BaseEstimator):
         output = get_hrf_fit(ys, hrf_measurement_points, visible_events,
                              alphas, beta_indices, initial_beta, unique_events,
                              gamma_0=self.gamma_0, tau_0=self.tau_0,
-                             max_iter=self.max_iter,
+                             max_iter=self.fmin_max_iter, n_iter=self.n_iter,
                              sigma_noise_0=self.sigma_noise_0)
 
         hrf_measurement_points = np.concatenate(output[1][0])
@@ -345,7 +349,7 @@ if __name__ == '__main__':
     t_r = 2
     jitter_min, jitter_max = -1, 1
     event_types = ['evt_1', 'evt_2', 'evt_3', 'evt_4', 'evt_5', 'evt_6']
-    sigma_noise = .05
+    sigma_noise = .1
 
     paradigm, design, modulation, measurement_time = \
         generate_spikes_time_series(n_events=n_events,
@@ -377,11 +381,13 @@ if __name__ == '__main__':
     tau_0 = 1.
     sigma_noise_0 = 0.01
     time_offset = 10
-    max_iter = 10
+    fmin_max_iter = 60
+    n_iter = 10
 
     gp = SuperDuperGP(hrf_length=hrf_length, modulation=modulation,
-                      gamma_0=gamma_0, max_iter=max_iter, tau_0=tau_0,
-                      sigma_noise_0=sigma_noise_0, time_offset=time_offset)
+                      gamma_0=gamma_0, fmin_max_iter=fmin_max_iter, tau_0=tau_0,
+                      sigma_noise_0=sigma_noise_0, time_offset=time_offset,
+                      n_iter=n_iter)
 
     design = design[event_types].values  # forget about drifts for the moment
     beta = rng.randn(len(event_types))
