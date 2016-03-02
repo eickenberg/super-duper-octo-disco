@@ -18,12 +18,27 @@ import warnings
 
 # from joblib import delayed, Parallel
 
+MACHINE_EPS = np.finfo(np.double).eps
 
 def _rbf_kernel(X, Y, gamma=1., tau=1.):
     X, Y = map(np.atleast_1d, (X, Y))
     diff_squared = (X.reshape(-1, 1) - Y.reshape(-1)) ** 2
 
     return np.exp(-diff_squared / gamma) * tau
+
+
+# This is just temporal
+def _get_hrf_model(hrf_model, hrf_length):
+    if hrf_model is None:
+        hrf_0 = 0
+    elif hrf_model == 'spm':
+        hrf_0 = spm_hrf(1., 1., time_length=hrf_length)
+    elif hrf_model == 'glover':
+        hrf_0 = glover_hrf(1., 1., time_length=hrf_length)
+    else:
+        hrf_0 = 0
+        warnings.warn("The HRF model is not recognized, setting it to None")
+    return hrf_0
 
 
 def _get_design_from_hrf_measures(hrf_measures, beta_indices):
@@ -119,7 +134,7 @@ def _alpha_weighted_kernel(hrf_measurement_points, alphas,
 
 def _get_hrf_values_from_betas(ys, beta_values, alpha_weighted_cov,
                                alpha_weighted_cross_cov, beta_indices,
-                               sigma_nosie, K_22=None):
+                               sigma_noise, K_22=None):
 
     col_coordinates = np.concatenate(
         [i * np.ones(len(beta_ind)) for i, beta_ind in enumerate(beta_indices)])
@@ -160,7 +175,7 @@ def _get_data(ys, beta_values, beta_indices, hrf_measurement_points, alphas,
 
     (mu, var), (alpha, K_reg, inv_K_reg, K_cross) =  _get_hrf_values_from_betas(
         ys, beta_values, alpha_weighted_cov, alpha_weighted_cross_cov,
-        beta_indices, sigma_noise, K_22=K_22)
+        beta_indices, sigma_noise=sigma_noise, K_22=K_22)
 
     return (mu, var), (alpha, K_reg, inv_K_reg, K_cross)
 
@@ -173,8 +188,8 @@ def _get_betas_and_hrf(ys, betas, pre_cov, pre_cross_cov, beta_indices,
     all_betas = []
     for i in range(n_iter):
         values, _ = _get_hrf_values_from_betas(ys, betas, pre_cov,
-                                                   pre_cross_cov, beta_indices,
-                                                   sigma_noise, K_22=K_22)
+                                               pre_cross_cov, beta_indices,
+                                               sigma_noise, K_22=K_22)
         hrf_values, hrf_var = values
         design = _get_design_from_hrf_measures(hrf_values, beta_indices)
         # Least squares estimation
@@ -206,7 +221,7 @@ def f(params, *args):
 
     _, (alpha, K_reg, inv_K_reg, K_cross) = _get_data(
         ys, beta_values, beta_indices, hrf_measurement_points, alphas,
-        evaluation_points, gamma, sigma_noise, tau)
+        evaluation_points, gamma=gamma, tau=tau, sigma_noise=sigma_noise)
 
     return - get_loglikelihood(ys, alpha, K_reg, inv_K_reg)
 
@@ -229,8 +244,7 @@ def get_hrf_fit(ys, hrf_measurement_points, visible_events, alphas, beta_indices
                 evaluation_points=None, max_iter=10, n_iter=20):
 
     betas = initial_beta.copy()
-
-    # Finding the parameters:
+    # Finding the parameters ##################################################
     # Maximizing the log-likelihood (gradient based optimization)
     args = (ys, betas, beta_indices, hrf_measurement_points, alphas,
             evaluation_points)
@@ -255,7 +269,7 @@ def get_hrf_fit(ys, hrf_measurement_points, visible_events, alphas, beta_indices
 class SuperDuperGP(BaseEstimator):
 
     def __init__(self, hrf_length=32., t_r=2, time_offset=10,
-                 modulation=None, sigma_noise_0=0, tau_0=1., gamma_0=1.,
+                 modulation=None, sigma_noise_0=0.001, tau_0=1., gamma_0=1.,
                  copy=True, max_iter=10, hrf_model=None):
         self.t_r = t_r
         self.hrf_length = hrf_length
@@ -263,28 +277,15 @@ class SuperDuperGP(BaseEstimator):
         self.time_offset = time_offset
         self.sigma_noise_0 = sigma_noise_0
         self.gamma_0 = gamma_0
-        self.copy = copy
         self.tau_0 = tau_0
+        self.copy = copy
         self.max_iter = max_iter
         self.hrf_model = hrf_model
-
-    def _get_hrf_model(self):
-        if self.hrf_model is None:
-            hrf_0 = 0
-        elif self.hrf_model == 'spm':
-            hrf_0 = spm_hrf(1., 1., time_length=self.hrf_length)
-        elif self.hrf_model == 'glover':
-            hrf_0 = glover_hrf(1., 1., time_length=self.hrf_length)
-        else:
-            hrf_0 = 0
-            warnings.warn("The HRF model is not recognized, setting it to None")
-        return hrf_0
-
 
     def fit(self, ys, paradigm, initial_beta=None):
 
         ys = np.atleast_1d(ys)
-        hrf_0 = self._get_hrf_model()
+        # hrf_0 = _get_hrf_model(self.hrf_model, self.hrf_length)
 
         hrf_measurement_points, visible_events, alphas, beta_indices, unique_events = \
             _get_hrf_measurements(paradigm, hrf_length=self.hrf_length,
@@ -309,22 +310,22 @@ class SuperDuperGP(BaseEstimator):
 
         return hx, hy, hrf_var
 
-    def predict(self, paradigm):
+    # def predict(self, paradigm):
 
-        check_is_fitted(self, ["params_", "hrf_measurement_points_"])
-        gamma, sigma_noise, tau = params
+    #     check_is_fitted(self, ["params_", "hrf_measurement_points_"])
+    #     gamma, sigma_noise, tau = params
 
-        hrf_measurement_points, visible_events, alphas, beta_indices, unique_events = \
-            _get_hrf_measurements(paradigm, hrf_length=self.hrf_length,
-                                  t_r=self.t_r, time_offset=self.time_offset)
+    #     hrf_measurement_points, visible_events, alphas, beta_indices, unique_events = \
+    #         _get_hrf_measurements(paradigm, hrf_length=self.hrf_length,
+    #                               t_r=self.t_r, time_offset=self.time_offset)
 
-        # new evaluation points
-        pre_cov, pre_cross_cov = \
-            _alpha_weighted_kernel(self.hrf_measurement_points_, alphas,
-                                   evaluation_points=evaluation_points,
-                                   gamma=gamma, tau=tau)
-        import pdb; pdb.set_trace()  # XXX BREAKPOINT
-        pass
+    #     # new evaluation points
+    #     pre_cov, pre_cross_cov = \
+    #         _alpha_weighted_kernel(self.hrf_measurement_points_, alphas,
+    #                                evaluation_points=evaluation_points,
+    #                                gamma=gamma, tau=tau)
+    #     import pdb; pdb.set_trace()  # XXX BREAKPOINT
+    #     pass
 
 
 
@@ -344,7 +345,7 @@ if __name__ == '__main__':
     t_r = 2
     jitter_min, jitter_max = -1, 1
     event_types = ['evt_1', 'evt_2', 'evt_3', 'evt_4', 'evt_5', 'evt_6']
-    sigma_noise = .01
+    sigma_noise = .05
 
     paradigm, design, modulation, measurement_time = \
         generate_spikes_time_series(n_events=n_events,
@@ -356,25 +357,25 @@ if __name__ == '__main__':
                                     time_offset=10, modulation=None, seed=seed)
 
     ###########################################################################
-    # Held out data
-    n_events2 = 100
-    n_blank_events2 = 20
-    event_spacing2 = 8
+    # # Held out data
+    # n_events2 = 100
+    # n_blank_events2 = 20
+    # event_spacing2 = 8
 
-    paradigm2, design2, modulation2, measurement_time2 = \
-        generate_spikes_time_series(n_events=n_events2,
-                                    n_blank_events=n_blank_events2,
-                                    event_spacing=event_spacing2, t_r=t_r,
-                                    return_jitter=True, jitter_min=jitter_min,
-                                    jitter_max=jitter_max,
-                                    event_types=event_types, period_cut=64,
-                                    time_offset=10, modulation=None, seed=seed)
+    # paradigm2, design2, modulation2, measurement_time2 = \
+    #     generate_spikes_time_series(n_events=n_events2,
+    #                                 n_blank_events=n_blank_events2,
+    #                                 event_spacing=event_spacing2, t_r=t_r,
+    #                                 return_jitter=True, jitter_min=jitter_min,
+    #                                 jitter_max=jitter_max,
+    #                                 event_types=event_types, period_cut=64,
+    #                                 time_offset=10, modulation=None, seed=seed)
     ###########################################################################
     # GP parameters
     hrf_length = 24
     gamma_0 = 1.
     tau_0 = 1.
-    sigma_noise_0 = 0.1
+    sigma_noise_0 = 0.01
     time_offset = 10
     max_iter = 10
 
