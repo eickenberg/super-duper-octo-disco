@@ -15,21 +15,12 @@ from nistats.experimental_paradigm import check_paradigm
 from scipy.optimize import fmin
 # from joblib import delayed, Parallel
 
-MACHINE_EPSILON = np.finfo(np.double).eps
-
 
 def _rbf_kernel(X, Y, gamma=1., tau=1.):
     X, Y = map(np.atleast_1d, (X, Y))
     diff_squared = (X.reshape(-1, 1) - Y.reshape(-1)) ** 2
 
     return tau * np.exp(-diff_squared / gamma)
-
-
-def _der_rbf_kernel(X, Y, gamma=1., tau=1.):
-    X, Y = map(np.atleast_1d, (X, Y))
-    diff_squared = (X.reshape(-1, 1) - Y.reshape(-1)) ** 2
-
-    return tau * np.exp(-diff_squared / gamma) * (diff_squared / gamma ** 2)
 
 
 def _get_hrf_measurements(paradigm, hrf_length=32., t_r=2, time_offset=10):
@@ -104,36 +95,44 @@ def _alpha_weighted_kernel(hrf_measurement_points, alphas,
     return pre_cov, pre_cross_cov
 
 
-def _der_alpha_weighted_kernel(hrf_measurement_points, alphas,
-                               evaluation_points=None, gamma=1.):
-
-    hrf_measurement_points = np.concatenate(hrf_measurement_points)
-
-    if evaluation_points is None:
-        evaluation_points = hrf_measurement_points
-
-    alphas = np.concatenate(alphas)
-    alpha_weight = alphas[:, np.newaxis] * alphas
-
-    der_Sigma_22 = _der_rbf_kernel(hrf_measurement_points,
-                                   hrf_measurement_points, gamma=gamma)
-
-    der_cov = der_Sigma_22 * alpha_weight
-
-    return der_cov
+def get_loglikelihood(ys, alpha, K_reg, inv_K_reg):
+    (sign, logdet) = np.linalg.slogdet(K_reg)
+    print logdet
+    loglikelihood = -0.5 * ys.dot(alpha) \
+        -0.5 * (sign * logdet) - (ys.shape[0] / 2) * np.log(2*np.pi)
+    return loglikelihood
 
 
-# XXX change this function name, I have no idea how to call it
-def _get_data(ys, beta_values, beta_indices, hrf_measurement_points, alphas,
-              evaluation_points=None, gamma=1., sigma_noise=0.0001):
-    # weighted kernel
-    alpha_weighted_cov, _ = _alpha_weighted_kernel(
-        hrf_measurement_points, alphas, evaluation_points=evaluation_points,
-        gamma=gamma)
-    # derivative
-    der_alpha_weighted_cov = _der_alpha_weighted_kernel(
-        hrf_measurement_points, alphas, evaluation_points=evaluation_points,
-        gamma=gamma)
+### loglikelihood
+def f(params, *args):
+    gamma, sigma_noise = params
+    (ys, beta_values, beta_indices, hrf_measurement_points, alphas,
+     evaluation_points) = args
+
+    _, (alpha, K_reg, inv_K_reg, K_cross) = _get_data(
+        ys, beta_values, beta_indices, hrf_measurement_points, alphas,
+        evaluation_points, gamma, sigma_noise)
+
+    return -get_loglikelihood(ys, alpha, K_reg, inv_K_reg)
+
+
+def _get_design_from_hrf_measures(hrf_measures, beta_indices):
+    event_names = np.unique(np.concatenate(beta_indices)).astype('int')
+
+    design = np.zeros([len(beta_indices), len(event_names)])
+    pointer = 0
+
+    for beta_ind, row in zip(beta_indices, design):
+        measures = hrf_measures[pointer:pointer + len(beta_ind)]
+        for i, name in enumerate(event_names):
+            row[i] = measures[beta_ind == name].sum()
+        pointer += len(beta_ind)
+    return design
+
+
+def _get_hrf_values_from_betas(ys, beta_values, alpha_weighted_cov,
+                               alpha_weighted_cross_cov, beta_indices,
+                               sigma_nosie, Sigma_22=None):
 
     col_coordinates = np.concatenate(
         [i * np.ones(len(beta_ind)) for i, beta_ind in enumerate(beta_indices)])
@@ -145,127 +144,51 @@ def _get_data(ys, beta_values, beta_indices, hrf_measurement_points, alphas,
     shape = (len(all_betas), len(beta_indices))).tocsc()
 
     K = collapser.T.dot(collapser.T.dot(alpha_weighted_cov).T).T
-    K_reg = K + np.eye(K.shape[0]) * sigma_noise ** 2
+    K_cross = collapser.T.dot(alpha_weighted_cross_cov.T).T  # again
 
-    der_K = collapser.T.dot(collapser.T.dot(der_alpha_weighted_cov).T).T
+    K_reg = K + np.eye(K.shape[0]) * sigma_noise ** 2
 
     inv_K_reg = np.linalg.inv(K_reg)
     alpha = inv_K_reg.dot(ys)
 
-    return alpha, K_reg, inv_K_reg, der_K
+    mu_bar = K_cross.dot(inv_K_reg.dot(ys))
+
+    # if Sigma_22 is not None:
+    #     var_bar = np.diag(Sigma_22) - np.einsum(
+    #         'ij, ji -> i', cross_cov, np.dot(inv_reg_cov, cross_cov.T))
+    #     return mu_bar, var_bar
+
+    # return mu_bar
+    return mu_bar, (alpha, K_reg, inv_K_reg, K_cross)
 
 
-def get_loglikelihood(ys, alpha, K_reg, inv_K_reg, der_K):
-    (sign, logdet) = np.linalg.slogdet(K_reg) # + MACHINE_EPSILON)
-    print logdet
-    loglikelihood = -0.5 * ys.dot(alpha) \
-        -0.5 * (sign * logdet) - (ys.shape[0] / 2) * np.log(2*np.pi)
-    return -loglikelihood
+def _get_data(ys, beta_values, beta_indices, hrf_measurement_points, alphas,
+              evaluation_points=None, gamma=1., sigma_noise=0.0001):
 
-
-def get_der_loglikelihood(alpha, K_reg, inv_K_reg, der_K):
-    der_loglikelihood = 0.5 * np.trace(
-        (np.dot(alpha.reshape(-1, 1),
-                alpha.reshape(1, -1)) - inv_K_reg).dot(der_K))
-    return der_loglikelihood
-
-### TEST
-def f(params, *args):
-    gamma, sigma_noise = params
-    (ys, beta_values, beta_indices, hrf_measurement_points, alphas,
-     evaluation_points) = args
-
-    alpha, K_reg, inv_K_reg, der_K = _get_data(ys, beta_values, beta_indices,
-                                               hrf_measurement_points, alphas,
-                                               evaluation_points, gamma,
-                                               sigma_noise)
-    return get_loglikelihood(ys, alpha, K_reg, inv_K_reg, der_K)
-
-# def fprime(gamma, *args):
-#     (ys, beta_values, beta_indices, hrf_measurement_points, alphas,
-#      evaluation_points, sigma_noise) = args
-
-#     alpha, K_reg, inv_K_reg, der_K = _get_data(ys, beta_values, beta_indices,
-#                                                hrf_measurement_points, alphas,
-#                                                evaluation_points, gamma,
-#                                                sigma_noise)
-
-#     return get_der_loglikelihood(alpha, K_reg, inv_K_reg, der_K)
-
-
-def _get_design_from_hrf_measures(hrf_measures, beta_indices):
-
-    event_names = np.unique(np.concatenate(beta_indices)).astype('int')
-
-    design = np.zeros([len(beta_indices), len(event_names)])
-    pointer = 0
-
-    for beta_ind, row in zip(beta_indices, design):
-        measures = hrf_measures[pointer:pointer + len(beta_ind)]
-        for i, name in enumerate(event_names):
-            row[i] = measures[beta_ind == name].sum()
-        pointer += len(beta_ind)
-
-    return design
-
-
-def _get_hrf_values_from_betas(y, beta_values, alpha_weighted_kernel_cov,
-                               alpha_weighted_kernel_cross_cov,
-                               beta_indices, sigma_noise, Sigma_22=None):
-
-    col_coordinates = np.concatenate(
-        [i * np.ones(len(beta_ind)) for i, beta_ind in enumerate(beta_indices)])
-
-    all_betas = beta_values[np.concatenate(beta_indices).astype('int')]
-
-    row_coordinates = np.arange(len(all_betas))
-    collapser = coo_matrix((all_betas, (row_coordinates, col_coordinates)),
-    shape = (len(all_betas), len(beta_indices))).tocsc()
-    cov = collapser.T.dot(collapser.T.dot(
-        alpha_weighted_kernel_cov).T).T   # awful, I know. sparse matrix problem
-
-    cross_cov = collapser.T.dot(alpha_weighted_kernel_cross_cov.T).T  # again
-    inv_reg_cov = np.linalg.inv(cov + np.eye(cov.shape[0]) * sigma_noise ** 2)
-
-    mu_bar = cross_cov.dot(inv_reg_cov.dot(y))
-
-    if Sigma_22 is not None:
-        var_bar = np.diag(Sigma_22) - np.einsum(
-            'ij, ji -> i', cross_cov, np.dot(inv_reg_cov, cross_cov.T))
-        return mu_bar, var_bar
-
-    return mu_bar
-
-
-def get_hrf_gp(ys, hrf_measurement_points, visible_events, alphas, beta_indices,
-               initial_beta, unique_events, evaluation_points,
-               gamma, max_iter, sigma_noise, n_iter=30,
-               step_size=0.25, verbose=True):
-
-    betas = initial_beta.copy()
-
-    # Maximizing the log-likelihood (gradient based optimization)
-    args = (ys, betas, beta_indices, hrf_measurement_points, alphas,
-            evaluation_points)
-    params = fmin(f, [gamma_0, sigma_noise_0], args=args, maxiter=10,
-                  full_output=True)
-    gamma_ = params[0][0]
-    sigma_noise_ = params[0][1]
-
-    print params
-
-    pre_cov, pre_cross_cov = \
+    # weighted kernels
+    alpha_weighted_cov, alpha_weighted_cross_cov = \
         _alpha_weighted_kernel(hrf_measurement_points, alphas,
                                evaluation_points=evaluation_points,
-                               gamma=gamma_)
+                               gamma=gamma)
+
+    mu, (alpha, K_reg, inv_K_reg, K_cross) =  _get_hrf_values_from_betas(
+        ys, beta_values, alpha_weighted_cov, alpha_weighted_cross_cov,
+        beta_indices, sigma_noise)
+
+    return mu, (alpha, K_reg, inv_K_reg, K_cross)
+
+
+
+def _get_betas_and_hrf(ys, betas, pre_cov, pre_cross_cov, beta_indices,
+                       sigma_noise, maxi_iter=10):
     all_hrf_values = []
     all_designs = []
     all_betas = []
-
     for i in range(max_iter):
-        hrf_values = _get_hrf_values_from_betas(ys, betas, pre_cov,
-                                                pre_cross_cov, beta_indices,
-                                                sigma_noise_)
+        hrf_values, _ = _get_hrf_values_from_betas(ys, betas, pre_cov,
+                                                   pre_cross_cov, beta_indices,
+                                                   sigma_noise)
+
         design = _get_design_from_hrf_measures(hrf_values, beta_indices)
         # Least squares estimation
         betas = np.linalg.pinv(design).dot(ys)
@@ -274,8 +197,35 @@ def get_hrf_gp(ys, hrf_measurement_points, visible_events, alphas, beta_indices,
         all_designs.append(design)
         all_betas.append(betas)
 
+    return (betas, hrf_values, all_hrf_values, all_designs, all_betas)
+
+
+def get_hrf_fit(ys, hrf_measurement_points, visible_events, alphas, beta_indices,
+                initial_beta, unique_events, evaluation_points,
+                gamma, max_iter, sigma_noise, n_iter=30, verbose=True):
+
+    betas = initial_beta.copy()
+
+    # Maximizing the log-likelihood (gradient based optimization)
+    args = (ys, betas, beta_indices, hrf_measurement_points, alphas,
+            evaluation_points)
+    params = fmin(f, [gamma_0, sigma_noise_0], args=args, maxiter=3)
+                  # full_output=True) # to debug
+
+    gamma_, sigma_noise_ = params
+
+    print params
+
+    pre_cov, pre_cross_cov = _alpha_weighted_kernel(
+        hrf_measurement_points, alphas, evaluation_points=evaluation_points,
+        gamma=gamma_)
+
+    (betas, hrf_values, all_hrf_values, all_designs, all_betas) = \
+        _get_betas_and_hrf(ys, betas, pre_cov, pre_cross_cov, beta_indices,
+                           sigma_noise_, maxi_iter=max_iter)
+
     return (betas, (hrf_measurement_points, hrf_values), all_hrf_values,
-            all_designs, all_betas, gamma_)
+            all_designs, all_betas)
 
 
 class SuperDuperGP(BaseEstimator):
@@ -303,17 +253,15 @@ class SuperDuperGP(BaseEstimator):
         if initial_beta is None:
             initial_beta = np.ones(len(unique_events))
 
-        output = get_hrf_gp(ys, hrf_measurement_points, visible_events, alphas,
-                            beta_indices, initial_beta, unique_events,
-                            evaluation_points, gamma=self.gamma,
-                            max_iter=self.max_iter,
-                            sigma_noise=self.sigma_noise)
+        output = get_hrf_fit(ys, hrf_measurement_points, visible_events, alphas,
+                             beta_indices, initial_beta, unique_events,
+                             evaluation_points, gamma=self.gamma,
+                             max_iter=self.max_iter,
+                             sigma_noise=self.sigma_noise)
 
         hrf_measurement_points = np.concatenate(output[1][0])
         order = np.argsort(hrf_measurement_points)
         hx, hy = hrf_measurement_points[order], output[1][1][order]
-
-        self.gamma_ = output[-1]
 
         return hx, hy
 
@@ -348,7 +296,7 @@ if __name__ == '__main__':
     t_r = 2
     jitter_min, jitter_max = -1, 1
     event_types = ['evt_1', 'evt_2', 'evt_3', 'evt_4', 'evt_5', 'evt_6']
-    sigma_noise = .1
+    sigma_noise = .08
 
     paradigm, design, modulation, measurement_time = \
         generate_spikes_time_series(n_events=n_events,
