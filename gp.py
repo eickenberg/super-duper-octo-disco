@@ -8,11 +8,14 @@ This implementation is based on scikit learn and Michael's implementation
 import numpy as np
 from sklearn.base import BaseEstimator
 from sklearn.utils import check_X_y, check_random_state
-from sklearn.metrics import pairwise_kernels
+# from sklearn.metrics import pairwise_kernels
 from scipy.sparse import coo_matrix
 from nistats.experimental_paradigm import check_paradigm
 from sklearn.utils.validation import check_is_fitted
-from scipy.optimize import fmin
+from scipy.optimize import fmin_cobyla
+from nistats.hemodynamic_models import spm_hrf, glover_hrf
+import warnings
+
 # from joblib import delayed, Parallel
 
 
@@ -20,7 +23,7 @@ def _rbf_kernel(X, Y, gamma=1., tau=1.):
     X, Y = map(np.atleast_1d, (X, Y))
     diff_squared = (X.reshape(-1, 1) - Y.reshape(-1)) ** 2
 
-    return np.exp(-diff_squared / (gamma ** 2)) * (tau ** 2)
+    return np.exp(-diff_squared / gamma) * tau
 
 
 def _get_design_from_hrf_measures(hrf_measures, beta_indices):
@@ -208,6 +211,19 @@ def f(params, *args):
     return - get_loglikelihood(ys, alpha, K_reg, inv_K_reg)
 
 
+# adding a positivity constrain
+def constr0(params, *args):
+    return params[0]
+
+
+def constr1(params, *args):
+    return params[1]
+
+
+def constr2(params, *args):
+    return params[2]
+
+
 def get_hrf_fit(ys, hrf_measurement_points, visible_events, alphas, beta_indices,
                 initial_beta, unique_events, gamma_0, tau_0, sigma_noise_0,
                 evaluation_points=None, max_iter=10, n_iter=20):
@@ -218,8 +234,9 @@ def get_hrf_fit(ys, hrf_measurement_points, visible_events, alphas, beta_indices
     # Maximizing the log-likelihood (gradient based optimization)
     args = (ys, betas, beta_indices, hrf_measurement_points, alphas,
             evaluation_points)
-    params = fmin(f, [gamma_0, sigma_noise_0, tau_0], args=args,
-                  maxiter=max_iter)
+    params = fmin_cobyla(f, [gamma_0, sigma_noise_0, tau_0],
+                         [constr0, constr1, constr2], args=args,
+                         maxfun=max_iter, rhoend=1e-7)
 
     gamma_, sigma_noise_, tau_ = params
 
@@ -239,7 +256,7 @@ class SuperDuperGP(BaseEstimator):
 
     def __init__(self, hrf_length=32., t_r=2, time_offset=10,
                  modulation=None, sigma_noise_0=0, tau_0=1., gamma_0=1.,
-                 copy=True, max_iter=10, boundary_conditions=True):
+                 copy=True, max_iter=10, hrf_model=None):
         self.t_r = t_r
         self.hrf_length = hrf_length
         self.modulation = modulation
@@ -249,10 +266,25 @@ class SuperDuperGP(BaseEstimator):
         self.copy = copy
         self.tau_0 = tau_0
         self.max_iter = max_iter
+        self.hrf_model = hrf_model
+
+    def _get_hrf_model(self):
+        if self.hrf_model is None:
+            hrf_0 = 0
+        elif self.hrf_model == 'spm':
+            hrf_0 = spm_hrf(1., 1., time_length=self.hrf_length)
+        elif self.hrf_model == 'glover':
+            hrf_0 = glover_hrf(1., 1., time_length=self.hrf_length)
+        else:
+            hrf_0 = 0
+            warnings.warn("The HRF model is not recognized, setting it to None")
+        return hrf_0
+
 
     def fit(self, ys, paradigm, initial_beta=None):
 
         ys = np.atleast_1d(ys)
+        hrf_0 = self._get_hrf_model()
 
         hrf_measurement_points, visible_events, alphas, beta_indices, unique_events = \
             _get_hrf_measurements(paradigm, hrf_length=self.hrf_length,
@@ -260,8 +292,8 @@ class SuperDuperGP(BaseEstimator):
         if initial_beta is None:
             initial_beta = np.ones(len(unique_events))
 
-        output = get_hrf_fit(ys, hrf_measurement_points, visible_events, alphas,
-                             beta_indices, initial_beta, unique_events,
+        output = get_hrf_fit(ys, hrf_measurement_points, visible_events,
+                             alphas, beta_indices, initial_beta, unique_events,
                              gamma_0=self.gamma_0, tau_0=self.tau_0,
                              max_iter=self.max_iter,
                              sigma_noise_0=self.sigma_noise_0)
@@ -312,7 +344,7 @@ if __name__ == '__main__':
     t_r = 2
     jitter_min, jitter_max = -1, 1
     event_types = ['evt_1', 'evt_2', 'evt_3', 'evt_4', 'evt_5', 'evt_6']
-    sigma_noise = .05
+    sigma_noise = .01
 
     paradigm, design, modulation, measurement_time = \
         generate_spikes_time_series(n_events=n_events,
