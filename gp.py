@@ -11,6 +11,7 @@ from sklearn.utils import check_X_y, check_random_state
 from sklearn.metrics import pairwise_kernels
 from scipy.sparse import coo_matrix
 from nistats.experimental_paradigm import check_paradigm
+from sklearn.utils.validation import check_is_fitted
 from scipy.optimize import fmin
 # from joblib import delayed, Parallel
 
@@ -208,8 +209,8 @@ def f(params, *args):
 
 
 def get_hrf_fit(ys, hrf_measurement_points, visible_events, alphas, beta_indices,
-                initial_beta, unique_events, evaluation_points,
-                gamma_0, tau_0, sigma_noise_0, max_iter=10, n_iter=20):
+                initial_beta, unique_events, gamma_0, tau_0, sigma_noise_0,
+                evaluation_points=None, max_iter=10, n_iter=20):
 
     betas = initial_beta.copy()
 
@@ -249,7 +250,7 @@ class SuperDuperGP(BaseEstimator):
         self.tau_0 = tau_0
         self.max_iter = max_iter
 
-    def fit(self, ys, paradigm, evaluation_points=None, initial_beta=None):
+    def fit(self, ys, paradigm, initial_beta=None):
 
         ys = np.atleast_1d(ys)
 
@@ -261,8 +262,8 @@ class SuperDuperGP(BaseEstimator):
 
         output = get_hrf_fit(ys, hrf_measurement_points, visible_events, alphas,
                              beta_indices, initial_beta, unique_events,
-                             evaluation_points, gamma_0=self.gamma_0,
-                             tau_0=self.tau_0, max_iter=self.max_iter,
+                             gamma_0=self.gamma_0, tau_0=self.tau_0,
+                             max_iter=self.max_iter,
                              sigma_noise_0=self.sigma_noise_0)
 
         hrf_measurement_points = np.concatenate(output[1][0])
@@ -272,20 +273,25 @@ class SuperDuperGP(BaseEstimator):
         hx, hy = hrf_measurement_points[order], output[1][1][order]
 
         self.params_ = output[-1]
+        self.hrf_measurement_points_ = hrf_measurement_points
 
         return hx, hy, hrf_var
 
     def predict(self, paradigm):
 
+        check_is_fitted(self, ["params_", "hrf_measurement_points_"])
+        gamma, sigma_noise, tau = params
+
         hrf_measurement_points, visible_events, alphas, beta_indices, unique_events = \
             _get_hrf_measurements(paradigm, hrf_length=self.hrf_length,
                                   t_r=self.t_r, time_offset=self.time_offset)
 
-        # # new evaluation points
-        # pre_cov, pre_cross_cov = \
-        #     _alpha_weighted_kernel(hrf_measurement_points, alphas,
-        #                         evaluation_points=evaluation_points,
-        #                         gamma=gamma)
+        # new evaluation points
+        pre_cov, pre_cross_cov = \
+            _alpha_weighted_kernel(self.hrf_measurement_points_, alphas,
+                                   evaluation_points=evaluation_points,
+                                   gamma=gamma, tau=tau)
+        import pdb; pdb.set_trace()  # XXX BREAKPOINT
         pass
 
 
@@ -316,6 +322,22 @@ if __name__ == '__main__':
                                     jitter_max=jitter_max,
                                     event_types=event_types, period_cut=64,
                                     time_offset=10, modulation=None, seed=seed)
+
+    ###########################################################################
+    # Held out data
+    n_events2 = 100
+    n_blank_events2 = 20
+    event_spacing2 = 8
+
+    paradigm2, design2, modulation2, measurement_time2 = \
+        generate_spikes_time_series(n_events=n_events2,
+                                    n_blank_events=n_blank_events2,
+                                    event_spacing=event_spacing2, t_r=t_r,
+                                    return_jitter=True, jitter_min=jitter_min,
+                                    jitter_max=jitter_max,
+                                    event_types=event_types, period_cut=64,
+                                    time_offset=10, modulation=None, seed=seed)
+    ###########################################################################
     # GP parameters
     hrf_length = 24
     gamma_0 = 1.
