@@ -280,7 +280,7 @@ class SuperDuperGP(BaseEstimator):
 
         ys = np.atleast_1d(ys)
         if self.normalize_y:
-            self.y_train_mean = np.mean(y, axis=0)
+            self.y_train_mean = np.mean(ys, axis=0)
             ys = ys - self.y_train_mean
         else:
             self.y_train_mean = np.zeros(1)
