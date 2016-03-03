@@ -6,13 +6,14 @@ This implementation is based on scikit learn and Michael's implementation
 # TODO add more kernels
 
 import numpy as np
-from sklearn.base import BaseEstimator
+from sklearn.base import BaseEstimator, RegressorMixin, clone
 from sklearn.utils import check_X_y, check_random_state
 # from sklearn.metrics import pairwise_kernels
 from scipy.sparse import coo_matrix
 from nistats.experimental_paradigm import check_paradigm
 from sklearn.utils.validation import check_is_fitted
 from scipy.optimize import fmin_cobyla
+from scipy.linalg import cholesky, LinAlgError
 from nistats.hemodynamic_models import spm_hrf, glover_hrf
 import warnings
 
@@ -25,20 +26,6 @@ def _rbf_kernel(X, Y, gamma=1., tau=1.):
     diff_squared = (X.reshape(-1, 1) - Y.reshape(-1)) ** 2
 
     return np.exp(-diff_squared / gamma) * tau
-
-
-# This is just temporal
-def _get_hrf_model(hrf_model, hrf_length):
-    if hrf_model is None:
-        hrf_0 = 0
-    elif hrf_model == 'spm':
-        hrf_0 = spm_hrf(1., 1., time_length=hrf_length)
-    elif hrf_model == 'glover':
-        hrf_0 = glover_hrf(1., 1., time_length=hrf_length)
-    else:
-        hrf_0 = 0
-        warnings.warn("The HRF model is not recognized, setting it to None")
-    return hrf_0
 
 
 def _get_design_from_hrf_measures(hrf_measures, beta_indices):
@@ -274,7 +261,8 @@ class SuperDuperGP(BaseEstimator):
 
     def __init__(self, hrf_length=32., t_r=2, time_offset=10,
                  modulation=None, sigma_noise_0=0.001, tau_0=1., gamma_0=1.,
-                 copy=True, fmin_max_iter=10, n_iter=10, hrf_model=None):
+                 copy=True, fmin_max_iter=10, n_iter=10, hrf_model=None,
+                 normalize_y=True):
         self.t_r = t_r
         self.hrf_length = hrf_length
         self.modulation = modulation
@@ -286,10 +274,16 @@ class SuperDuperGP(BaseEstimator):
         self.fmin_max_iter = fmin_max_iter
         self.n_iter = n_iter
         self.hrf_model = hrf_model
+        self.normalize_y = normalize_y
 
     def fit(self, ys, paradigm, initial_beta=None):
 
         ys = np.atleast_1d(ys)
+        if self.normalize_y:
+            self.y_train_mean = np.mean(y, axis=0)
+            ys = ys - self.y_train_mean
+        else:
+            self.y_train_mean = np.zeros(1)
 
         hrf_measurement_points, visible_events, alphas, beta_indices, unique_events = \
             _get_hrf_measurements(paradigm, hrf_length=self.hrf_length,
@@ -313,24 +307,6 @@ class SuperDuperGP(BaseEstimator):
         self.hrf_measurement_points_ = hrf_measurement_points
 
         return hx, hy, hrf_var
-
-    # def predict(self, paradigm):
-
-    #     check_is_fitted(self, ["params_", "hrf_measurement_points_"])
-    #     gamma, sigma_noise, tau = params
-
-    #     hrf_measurement_points, visible_events, alphas, beta_indices, unique_events = \
-    #         _get_hrf_measurements(paradigm, hrf_length=self.hrf_length,
-    #                               t_r=self.t_r, time_offset=self.time_offset)
-
-    #     # new evaluation points
-    #     pre_cov, pre_cross_cov = \
-    #         _alpha_weighted_kernel(self.hrf_measurement_points_, alphas,
-    #                                evaluation_points=evaluation_points,
-    #                                gamma=gamma, tau=tau)
-    #     import pdb; pdb.set_trace()  # XXX BREAKPOINT
-    #     pass
-
 
 
 if __name__ == '__main__':
@@ -359,21 +335,6 @@ if __name__ == '__main__':
                                     jitter_max=jitter_max,
                                     event_types=event_types, period_cut=64,
                                     time_offset=10, modulation=None, seed=seed)
-
-    ###########################################################################
-    # # Held out data
-    # n_events2 = 100
-    # n_blank_events2 = 20
-    # event_spacing2 = 8
-
-    # paradigm2, design2, modulation2, measurement_time2 = \
-    #     generate_spikes_time_series(n_events=n_events2,
-    #                                 n_blank_events=n_blank_events2,
-    #                                 event_spacing=event_spacing2, t_r=t_r,
-    #                                 return_jitter=True, jitter_min=jitter_min,
-    #                                 jitter_max=jitter_max,
-    #                                 event_types=event_types, period_cut=64,
-    #                                 time_offset=10, modulation=None, seed=seed)
     ###########################################################################
     # GP parameters
     hrf_length = 24
@@ -381,7 +342,7 @@ if __name__ == '__main__':
     tau_0 = 1.
     sigma_noise_0 = 0.01
     time_offset = 10
-    fmin_max_iter = 60
+    fmin_max_iter = 20
     n_iter = 10
 
     gp = SuperDuperGP(hrf_length=hrf_length, modulation=modulation,
@@ -400,5 +361,19 @@ if __name__ == '__main__':
                      hy + 1.96 * np.sqrt(hrf_var), alpha=0.1)
     plt.plot(hx, hy)
     plt.show()
+
+
+# # This is just temporal
+# def _get_hrf_model(hrf_model, hrf_length):
+#     if hrf_model is None:
+#         hrf_0 = 0
+#     elif hrf_model == 'spm':
+#         hrf_0 = spm_hrf(1., 1., time_length=hrf_length)
+#     elif hrf_model == 'glover':
+#         hrf_0 = glover_hrf(1., 1., time_length=hrf_length)
+#     else:
+#         hrf_0 = 0
+#         warnings.warn("The HRF model is not recognized, setting it to None")
+#     return hrf_0
 
 
