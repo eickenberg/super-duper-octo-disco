@@ -169,6 +169,46 @@ def _get_hrf_values_from_betas(y, beta_values, alpha_weighted_kernel_cov,
     return mu_bar
 
 
+def _get_hrf_values_from_betas_b(y, beta_values, alpha_weighted_kernel_cov,
+                               alpha_weighted_kernel_cross_cov,
+                               beta_indices, noise_level, Sigma_22=None,
+                               prior_mean=None):
+
+    col_coordinates = np.concatenate(
+        [i * np.ones(len(beta_ind)) for i, beta_ind in enumerate(beta_indices)])
+
+    all_betas = beta_values[np.concatenate(beta_indices).astype('int')]
+
+    row_coordinates = np.arange(len(all_betas))
+    collapser = coo_matrix((all_betas, (row_coordinates, col_coordinates)),
+    shape = (len(all_betas), len(beta_indices))).tocsc()
+    cov = collapser.T.dot(collapser.T.dot(
+        alpha_weighted_kernel_cov).T).T   # awful, I know. sparse matrix problem
+
+    cross_cov = collapser.T.dot(alpha_weighted_kernel_cross_cov.T).T  # again
+    inv_reg_cov = np.linalg.inv(cov + np.eye(cov.shape[0]) * noise_level)
+
+    if prior_mean is None:
+        mu_1 = np.zeros(cross_cov.shape[1])
+        mu_2 = np.zeros(cross_cov.shape[0])
+    elif prior_mean='canonical':
+        from nistats import hemodynamic_models
+        mu_1 = hemodynamic_models.glover_hrf(tr=1., oversampling=cross_cov.shape[1])
+        mu_2 = hemodynamic_models.glover_hrf(tr=1., oversampling=cross_cov.shape[0])
+    elif prior_mean='bezier':
+        mu_1 = hemodynamic_models.glover_hrf(tr=1., oversampling=cross_cov.shape[1])
+        mu_2 = hemodynamic_models.glover_hrf(tr=1., oversampling=cross_cov.shape[0])
+
+    mu_bar = mu_2 - cross_cov.dot(inv_reg_cov.dot(mu_1 - y))
+
+    if Sigma_22 is not None:
+        var_bar = np.diag(Sigma_22) - np.einsum(
+            'ij, ji -> i', cross_cov, np.dot(inv_reg_cov, cross_cov.T))
+        return mu_bar, var_bar
+
+    return mu_bar
+
+
 def get_hrf_gp(ys, evaluation_points, initial_beta, paradigm, hrf_length, t_r,
                time_offset, kernel, gamma, coef0, degree, max_iter, noise_level,
                boundary_conditions):
@@ -192,9 +232,10 @@ def get_hrf_gp(ys, evaluation_points, initial_beta, paradigm, hrf_length, t_r,
 
     for i in range(max_iter):
         # print betas
-        hrf_values = _get_hrf_values_from_betas(ys, betas, pre_cov,
+        hrf_values = _get_hrf_values_from_betas_b(ys, betas, pre_cov,
                                                 pre_cross_cov, beta_indices,
-                                                noise_level)
+                                                noise_level, prior_mean=prior_mean)
+        print hrf_values.shape
         design = _get_design_from_hrf_measures(hrf_values, beta_indices)
         # Least squares estimation
         betas = np.linalg.pinv(design).dot(ys)
@@ -282,10 +323,20 @@ if __name__ == '__main__':
     ys = design.dot(beta) + rng.randn(design.shape[0]) * noise_level
 
     output = gp.fit(ys)
+    print 'output = ', output
 
     hrf_measurement_points = np.concatenate(output[1][0])
+    print 'hrf_measurement_points', hrf_measurement_points
     order = np.argsort(hrf_measurement_points)
+    print order
+
     hx, hy = hrf_measurement_points[order], output[1][1][order]
+
+    print 'hx = ', hx
+    print hx.shape
+    print 'hy = ', hy
+    print hy.shape
     plt.plot(hx, hy)
     # plt.axis([0, 32, -.02, .05])
+    plt.show()
 
