@@ -21,7 +21,7 @@ import warnings
 # MACHINE_EPS = np.finfo(np.double).eps
 
 
-def _rbf_kernel(X, Y, gamma=1., tau=1.):
+def _kernel(X, Y, gamma=1., tau=1.):
     X, Y = map(np.atleast_1d, (X, Y))
     diff_squared = (X.reshape(-1, 1) - Y.reshape(-1)) ** 2
 
@@ -103,16 +103,16 @@ def _alpha_weighted_kernel(hrf_measurement_points, alphas,
     alpha_weight = alphas[:, np.newaxis] * alphas
 
     # XXX Call a general kernel
-    K = _rbf_kernel(hrf_measurement_points, hrf_measurement_points,
+    K = _kernel(hrf_measurement_points, hrf_measurement_points,
                            gamma=gamma, tau=tau)
-    K_cross = _rbf_kernel(evaluation_points, hrf_measurement_points,
+    K_cross = _kernel(evaluation_points, hrf_measurement_points,
                               gamma=gamma, tau=tau)
 
     pre_cov = K * alpha_weight
     pre_cross_cov = K_cross * alphas
 
     if return_eval_cov:
-        K_22 = _rbf_kernel(evaluation_points, evaluation_points,
+        K_22 = _kernel(evaluation_points, evaluation_points,
                            gamma=gamma, tau=tau)
         return pre_cov, pre_cross_cov, K_22
 
@@ -262,7 +262,7 @@ class SuperDuperGP(BaseEstimator):
     def __init__(self, hrf_length=32., t_r=2, time_offset=10,
                  modulation=None, sigma_noise_0=0.001, tau_0=1., gamma_0=1.,
                  copy=True, fmin_max_iter=10, n_iter=10, hrf_model=None,
-                 normalize_y=True):
+                 normalize_y=False):
         self.t_r = t_r
         self.hrf_length = hrf_length
         self.modulation = modulation
