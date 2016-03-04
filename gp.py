@@ -66,7 +66,9 @@ class HRFKernel(StationaryKernelMixin, Kernel):
         pre_cross_cov: array-like (optional)
         """
         if self.kernel is None:
-            self.kernel = RBF(self.gamma, length_scale_bounds="fixed")
+            self.kernel_ = RBF(self.gamma, length_scale_bounds="fixed")
+        else:
+            self.kernel_ = clone(self.kernel)
 
         if evaluation_points is None:
             evaluation_points = hrf_measurement_points
@@ -74,14 +76,14 @@ class HRFKernel(StationaryKernelMixin, Kernel):
         etas = self.etas
         eta_weight = etas[:, np.newaxis] * etas
 
-        K = self.kernel(hrf_measurement_points)
-        K_cross = self.kernel(evaluation_points, hrf_measurement_points)
+        K = self.kernel_(hrf_measurement_points)
+        K_cross = self.kernel_(evaluation_points, hrf_measurement_points)
 
         eta_weighted_cov = K * eta_weight
         eta_weighted_cross_cov = K_cross * etas
 
         if self.return_eval_cov:
-            K_22 = self.kernel(evaluation_points)
+            K_22 = self.kernel_(evaluation_points)
             return eta_weighted_cov, eta_weighted_cross_cov, K_22
         return eta_weighted_cov, eta_weighted_cross_cov
 
@@ -242,7 +244,7 @@ class SuperDuperGP(BaseEstimator, RegressorMixin):
     """
     def __init__(self, hrf_length=32., t_r=2, time_offset=10, kernel=None,
                  modulation=None, sigma_noise=0.001, theta=[1., 1.],
-                 copy=True, fmin_max_iter=10, n_iter=10, hrf_model=None,
+                 fmin_max_iter=10, n_iter=10, hrf_model=None,
                  normalize_y=False, optimize=False, return_var=True,
                  verbose=True):
         self.t_r = t_r
@@ -251,7 +253,6 @@ class SuperDuperGP(BaseEstimator, RegressorMixin):
         self.time_offset = time_offset
         self.sigma_noise = sigma_noise
         self.theta = theta
-        self.copy = copy
         self.fmin_max_iter = fmin_max_iter
         self.n_iter = n_iter
         self.hrf_model = hrf_model
@@ -263,9 +264,10 @@ class SuperDuperGP(BaseEstimator, RegressorMixin):
 
     def _get_hrf_values_from_betas(self, ys, beta_values, beta_indices, etas,
                                    pre_cov, pre_cross_cov, K_22):
+        """This function returns the HRF estimation given information about
+        beta (i.e. beta_values, beta_indices)
         """
-        """
-        # Updating parameters
+        # Updating the parameters of the kernel
         kernel = self.hrf_kernel.clone_with_params(**dict(
             beta_values=beta_values, beta_indices=beta_indices, etas=etas))
 
@@ -293,15 +295,17 @@ class SuperDuperGP(BaseEstimator, RegressorMixin):
 
     def _fit(self, ys, hrf_measurement_points, visible_events, etas,
              beta_indices, initial_beta, unique_events, evaluation_points=None):
-        """Alternate optimization: Find HRF, build a new design matrix and
-        repeat
+        """This function performs an alternate optimization.
+        i) Finds HRF given the betas
+        ii) Finds the betas given the HRF estimation, we build a new design
+        matrix repeat until reach the number of iterations, n_iter
         """
         beta_values = initial_beta.copy()
 
         kernel = self.hrf_kernel.clone_with_params(**dict(
             beta_values=beta_values, beta_indices=beta_indices, etas=etas))
 
-        # get eta weighted matrices
+        # Getting eta weighted matrices
         pre_cov, pre_cross_cov, K_22 = kernel._eta_weighted_kernel(
             hrf_measurement_points, evaluation_points)
 
@@ -339,22 +343,24 @@ class SuperDuperGP(BaseEstimator, RegressorMixin):
             self.y_train_mean = np.zeros(1)
 
         self.y_train = ys
+
         # Get paradigm data
         hrf_measurement_points, visible_events, etas, beta_indices, unique_events = \
             _get_hrf_measurements(paradigm, hrf_length=self.hrf_length,
                                   t_r=self.t_r, time_offset=self.time_offset)
         if initial_beta is None:
             initial_beta = np.ones(len(unique_events))
+
         # Just to be able to use Kernels class
         hrf_measurement_points = np.concatenate(hrf_measurement_points)
         self.hrf_measurement_points = hrf_measurement_points[:, np.newaxis]
         etas = np.concatenate(etas)
+
         # Initialize the kernel
         self.hrf_kernel = HRFKernel(kernel=self.kernel,
                                     return_eval_cov=self.return_var)
-        import pdb; pdb.set_trace()  # XXX BREAKPOINT
-        # Maximizing the log-likelihood (gradient based optimization)
 
+        # Maximizing the log-likelihood (gradient based optimization)
         if self.optimize:
 
             def obj_func(theta, eval_gradient=False):
@@ -411,7 +417,7 @@ class SuperDuperGP(BaseEstimator, RegressorMixin):
         y_train = self.y_train
         y_train = y_train[:, np.newaxis]
 
-        # TODO add a clone
+        # XXX may be the kernel should be an input
         K, K_cross, _ = self.hrf_kernel(self.hrf_measurement_points)
         # Adding noise to the diagonal (Ridge)
         K[np.diag_indices_from(K)] += sigma_noise ** 2
