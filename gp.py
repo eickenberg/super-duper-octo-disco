@@ -4,6 +4,8 @@ This implementation is based on scikit learn and Michael's implementation
 """
 # TODO add hrf as a mean for the gp
 # TODO add more kernels
+# TODO add hrf as a men for the gp
+# TODO add hyperparameter optimization
 
 import numpy as np
 from sklearn.base import BaseEstimator, RegressorMixin, clone
@@ -16,6 +18,7 @@ from scipy.optimize import fmin_cobyla
 from scipy.linalg import (cholesky, LinAlgError, solve, lstsq, cho_solve,
                           solve_triangular)
 from nistats.hemodynamic_models import spm_hrf, glover_hrf
+from hrf import bezier_hrf, physio_hrf
 import warnings
 
 # from joblib import delayed, Parallel
@@ -40,8 +43,29 @@ def _get_design_from_hrf_measures(hrf_measures, beta_indices):
         measures = hrf_measures[pointer:pointer + len(beta_ind)]
         for i, name in enumerate(event_names):
             row[i] = measures[beta_ind == name].sum()
+
         pointer += len(beta_ind)
     return design
+
+
+
+# TODO add a function with more kernels
+def _get_kernel(X, Y=None, kernel='linear', gamma=1., degree=0, coef0=0, tau=1.):
+
+    X = np.atleast_1d(X)
+
+    if callable(kernel):
+        params = kernel_params or {}
+    else:
+        params = {"gamma": gamma, "degree": degree, "coef0": coef0}
+
+    if Y is None:
+        diff_squared = (X.reshape(-1, 1) - X.reshape(-1)) ** 2
+    else:
+        diff_squared = (X.reshape(-1, 1) - Y.reshape(-1)) ** 2
+
+    return tau * np.exp(-diff_squared / gamma)
+
 
 
 def _get_hrf_measurements(paradigm, hrf_length=32., t_r=2, time_offset=10):
@@ -84,6 +108,27 @@ def _get_hrf_measurements(paradigm, hrf_length=32., t_r=2, time_offset=10):
 
     return (hrf_measurement_points, visible_events, alphas, beta_indices,
             unique_events)
+
+
+def _get_hrf_model(hrf_model=None, hrf_length=25., dt=1., normalize=False):
+    """Returns HRF created with model hrf_model. If hrf_model is None,
+    then a vector of 0 is returned"""
+    if hrf_model == 'glover':
+        hrf_0 = glover_hrf(tr=1., oversampling=1./dt, time_length=hrf_length)
+    elif hrf_model == 'spm':
+        hrf_0 = spm_hrf(tr=1., oversampling=1./dt, time_length=hrf_length)
+    elif hrf_model == 'bezier':
+        # Bezier curves. We can indicate where is the undershoot and the peak etc
+        hrf_0 = bezier_hrf(hrf_length=hrf_length, dt=dt, pic=[6,1], picw=2,
+                           ushoot=[15,-0.2], ushootw=3, normalize=normalize)
+    elif hrf_model == 'physio':
+        # Balloon model. By default uses the parameters of Khalidov11
+        hrf_0 = physio_hrf(hrf_length=hrf_length, dt=dt, normalize=normalize)
+    else:
+        # Mean 0 if no hrf_model is specified
+        hrf_0 = np.zeros(hrf_length/dt)
+        warnings.warn("The HRF model is not recognized, setting it to None")
+    return hrf_0
 
 
 def _alpha_weighted_kernel(hrf_measurement_points, alphas,
@@ -431,17 +476,5 @@ if __name__ == '__main__':
     plt.show()
 
 
-# # This is just temporal
-# def _get_hrf_model(hrf_model, hrf_length):
-#     if hrf_model is None:
-#         hrf_0 = 0
-#     elif hrf_model == 'spm':
-#         hrf_0 = spm_hrf(1., 1., time_length=hrf_length)
-#     elif hrf_model == 'glover':
-#         hrf_0 = glover_hrf(1., 1., time_length=hrf_length)
-#     else:
-#         hrf_0 = 0
-#         warnings.warn("The HRF model is not recognized, setting it to None")
-#     return hrf_0
 
 
