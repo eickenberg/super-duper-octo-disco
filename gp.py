@@ -13,7 +13,7 @@ from scipy.sparse import coo_matrix
 from nistats.experimental_paradigm import check_paradigm
 from sklearn.utils.validation import check_is_fitted
 # from scipy.optimize import fmin_cobyla
-from scipy.linalg import (cholesky, cho_solve, solve_triangular)
+from scipy.linalg import (cholesky, cho_solve, solve_triangular, LinAlgError)
 from nistats.hemodynamic_models import spm_hrf, glover_hrf
 from hrf import bezier_hrf, physio_hrf
 from sklearn.gaussian_process.kernels import (Kernel, RBF,
@@ -40,12 +40,11 @@ class HRFKernel(StationaryKernelMixin, Kernel):
     def __init__(self, gamma=10., kernel=None, beta_values=None,
                  beta_indices=None, etas=None, return_eval_cov=True):
         self.return_eval_cov = return_eval_cov
-        if kernel is None:
-            self.kernel = RBF(gamma, length_scale_bounds="fixed")
-
         self.beta_values = beta_values
         self.beta_indices = beta_indices
         self.etas = etas
+        self.kernel = kernel
+        self.gamma = gamma
 
     def _eta_weighted_kernel(self, hrf_measurement_points,
                              evaluation_points=None):
@@ -66,6 +65,9 @@ class HRFKernel(StationaryKernelMixin, Kernel):
         pre_cov: array-like
         pre_cross_cov: array-like (optional)
         """
+        if self.kernel is None:
+            self.kernel = RBF(self.gamma, length_scale_bounds="fixed")
+
         if evaluation_points is None:
             evaluation_points = hrf_measurement_points
 
@@ -110,7 +112,6 @@ class HRFKernel(StationaryKernelMixin, Kernel):
             evaluation_points = hrf_measurement_points
 
         if self.return_eval_cov:
-            print "evaluating"
             eta_weighted_cov, eta_weighted_cross_cov, K_22 = \
                 self._eta_weighted_kernel(hrf_measurement_points,
                                           evaluation_points)
@@ -125,6 +126,12 @@ class HRFKernel(StationaryKernelMixin, Kernel):
                                               eta_weighted_cross_cov)
             return K, K_cross
 
+    def clone_with_params(self, **params):
+        cloned = clone(self)
+        cloned.set_params(**params)
+        return cloned
+
+    # XXX
     def diag(X):
         """Returns the diagonal of K(X, X)
         """
@@ -259,14 +266,11 @@ class SuperDuperGP(BaseEstimator, RegressorMixin):
         """
         """
         # Updating parameters
-        # TODO Add a clone, e.g. kernel = clone(self.hrf_kernel)
-        # or may be: hrf_kernel.clone_with_parameters(**params)
+        kernel = self.hrf_kernel.clone_with_params(**dict(
+            beta_values=beta_values, beta_indices=beta_indices, etas=etas))
 
-        self.hrf_kernel.set_params(**dict(beta_values=beta_values,
-                                          beta_indices=beta_indices,
-                                          etas=etas))
         # Getting the new kernel evaluation
-        K, K_cross = self.hrf_kernel._fit_hrf_kernel(
+        K, K_cross = kernel._fit_hrf_kernel(
             eta_weighted_cov=pre_cov, eta_weighted_cross_cov=pre_cross_cov)
         # Adding noise to the diagonal (Ridge)
         K[np.diag_indices_from(K)] += self.sigma_noise ** 2
@@ -294,11 +298,11 @@ class SuperDuperGP(BaseEstimator, RegressorMixin):
         """
         beta_values = initial_beta.copy()
 
-        self.hrf_kernel.set_params(**dict(beta_values=beta_values,
-                                          beta_indices=beta_indices,
-                                          etas=etas))
+        kernel = self.hrf_kernel.clone_with_params(**dict(
+            beta_values=beta_values, beta_indices=beta_indices, etas=etas))
+
         # get eta weighted matrices
-        pre_cov, pre_cross_cov, K_22 = self.hrf_kernel._eta_weighted_kernel(
+        pre_cov, pre_cross_cov, K_22 = kernel._eta_weighted_kernel(
             hrf_measurement_points, evaluation_points)
 
         all_hrf_values = []
@@ -333,6 +337,8 @@ class SuperDuperGP(BaseEstimator, RegressorMixin):
             ys = ys - self.y_train_mean
         else:
             self.y_train_mean = np.zeros(1)
+
+        self.y_train = ys
         # Get paradigm data
         hrf_measurement_points, visible_events, etas, beta_indices, unique_events = \
             _get_hrf_measurements(paradigm, hrf_length=self.hrf_length,
@@ -341,18 +347,21 @@ class SuperDuperGP(BaseEstimator, RegressorMixin):
             initial_beta = np.ones(len(unique_events))
         # Just to be able to use Kernels class
         hrf_measurement_points = np.concatenate(hrf_measurement_points)
-        hrf_measurement_points = hrf_measurement_points[:, np.newaxis]
+        self.hrf_measurement_points = hrf_measurement_points[:, np.newaxis]
         etas = np.concatenate(etas)
         # Initialize the kernel
         self.hrf_kernel = HRFKernel(kernel=self.kernel,
                                     return_eval_cov=self.return_var)
+        import pdb; pdb.set_trace()  # XXX BREAKPOINT
         # Maximizing the log-likelihood (gradient based optimization)
+
         if self.optimize:
 
             def obj_func(theta, eval_gradient=False):
                 return -self.log_marginal_likelihood(self, theta)
 
-        output = self._fit(ys, hrf_measurement_points=hrf_measurement_points,
+        output = self._fit(ys,
+                           hrf_measurement_points=self.hrf_measurement_points,
                            visible_events=visible_events, etas=etas,
                            beta_indices=beta_indices, initial_beta=initial_beta,
                            unique_events=unique_events)
@@ -381,65 +390,48 @@ class SuperDuperGP(BaseEstimator, RegressorMixin):
         """
         pass
 
-    # def log_marginal_likelihood(self, ys, sigma_noise=0.001, theta=None,
-    #                             eval_gradient=None):
-    #     """This functions return the marginal log-likelihood
+    def log_marginal_likelihood(self, sigma_noise=0.001, theta=None,
+                                eval_gradient=None):
+        """This functions return the marginal log-likelihood
 
-    #     Parameters
-    #     ----------
-    #     ys : array-like
-    #     kernel: kernel function
-    #     sigma_noise: float
-    #     theta: list of kernel's parameters
+        Parameters
+        ----------
+        ys : array-like
+        kernel: kernel function
+        sigma_noise: float
+        theta: list of kernel's parameters
 
-    #     Returns
-    #     -------
-    #     loglikelihood: float
+        Returns
+        -------
+        loglikelihood: float
 
-    #     see Rasmussen and Williams book, model selection in regression. Eq. 5.8
+        see Rasmussen and Williams book, model selection in regression. Eq. 5.8
 
-    #     """
+        """
+        y_train = self.y_train
+        y_train = y_train[:, np.newaxis]
 
-    #     eta_weighted_cov, eta_weighted_cross_cov = _eta_weighted_kernel(
-    #         self.hrf_measurement_points_, self.etas_, theta=theta,
-    #         return_eval_cov=False)
+        # TODO add a clone
+        K, K_cross, _ = self.hrf_kernel(self.hrf_measurement_points)
+        # Adding noise to the diagonal (Ridge)
+        K[np.diag_indices_from(K)] += sigma_noise ** 2
+        try:
+            L = cholesky(K, lower=True)
+            alpha = cho_solve((L, True), ys) # a.k.a. dual coef
+            alpha = alpha[:, np.newaxis]
 
-    #     K, K_cross =  _get_gp_kernels(beta_values, eta_weighted_cov,
-    #                                   eta_weighted_cross_cov,
-    #                                   beta_indices)
-    #     # evaluate the kernel on the training data
-    #     #  XXX This is not working, we need to change the parameters of the kernel
-    #     #  Please wait a minute
-    #     K = kernel
+        except LinAlgError:
+            loglikelihood = -np.inf
+            return loglikelihood
 
-    #     # Adding noise to the diagonal (Ridge)
-    #     K[np.diag_indices_from(K)] += sigma_noise ** 2
+        loglikelihood_dims = -0.5 * np.einsum("ik,jk->k", y_train, alpha)
+        loglikelihood_dims -= np.log(np.diag(L)).sum()
+        # normalization constant
+        loglikelihood_dims -= K.shape[0] / 2 * np.log(2 * np.pi)
+        # sum over all dim (sklearn)
+        loglikelihood = loglikelihood_dims.sum(-1)
 
-    #     try:
-    #         L = cholesky(kernel, lower=True)
-    #         alpha = cho_solve((L, True), ys) # a.k.a. dual coef
-
-    #     except LinAlgError:
-    #         loglikelihood = -np.inf
-    #         return loglikelihood
-
-    #     loglikelihood_dims = -0.5 * np.einsum("ik, jk->k", ys[:, np.newaxis],
-    #                                           alpha)
-    #     loglikelihood_dims -= np.log(np.diag(L)).sum()
-    #     # normalization constant
-    #     loglikelihood_dims -= K.shape[0] / 2 * np.log(2 * np.pi)
-    #     # sum over all dim (sklearn)
-    #     loglikelihood = loglikelihood_dims.sum(-1)
-
-    #     # if eval_gradient:
-    #     #     tmp = np.einsum("ik, jk->ijk", alpha, alpha)
-    #     #     tmp -= cho_solve((L, True), np.eye(K.shape[0]))[:, :, np.newaxis]
-
-    #     #     loglikelihood_gradient_dims = \
-    #     #         0.5 * np.einsum("ijl, ijk->kl", tmp, K_gradient)
-    #     #     loglikelihood_gradient = loglikelihood_gradient_dims.sum(-1)
-
-    #     return loglikelihood
+        return loglikelihood
 
 
 if __name__ == '__main__':
