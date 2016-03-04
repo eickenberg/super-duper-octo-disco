@@ -169,8 +169,65 @@ def _eta_weighted_kernel(hrf_measurement_points, etas,
     return pre_cov, pre_cross_cov
 
 
+def _eta_weighted_hrf(hrf_measurement_points, etas, n, m,
+                      evaluation_points=None):
+    """This function computes the kernel matrix of all measurement points,
+    potentially redundantly per measurement points, just to be sure we
+    identify things correctly afterwards.
+
+    If evaluation_points is set to None, then the original
+    hrf_measurement_points will be used
+
+    Parameters
+    ----------
+    hrf_measurement_points: list of list
+    etas: list of list
+    evaluation_points: list of list
+    theta: array-like, parameters of the kernel
+    return_eval_cov: bool
+
+    Returns
+    -------
+    mu_1: array-like
+    mu_2: array-like
+    """
+    hrf_measurement_points = np.concatenate(hrf_measurement_points)
+
+    if evaluation_points is None:
+        evaluation_points = hrf_measurement_points
+
+    etas = np.concatenate(etas)
+
+    hrf_model = 'bezier'
+    hrf_length = 25.
+    # in the hrf case mu1 would contain all the measurements of the hrf
+    # which would be alpha-beta-weighted linear combinations
+    # of the mean function evaluated at different points
+    hrf_1 = _get_hrf_model(hrf_model, hrf_length=hrf_length,
+                          dt=hrf_length/n, normalize=False)
+    hrf_2 = _get_hrf_model(hrf_model, hrf_length=hrf_length,
+                          dt=hrf_length/m, normalize=False)
+
+    if 1:
+        aux = hrf_1[np.around(hrf_measurement_points / hrf_length * n).astype(np.int)]
+        import matplotlib.pyplot as plt
+        plt.plot(hrf_measurement_points)
+        plt.show()
+        plt.plot(hrf_measurement_points / hrf_length * n)
+        plt.show()
+        plt.plot(aux)
+        plt.show()
+
+    ind1 = np.around(hrf_measurement_points / hrf_length * n).astype(np.int)
+    mu_1 = hrf_1[ind1] * etas
+    ind2 = np.around(hrf_measurement_points / hrf_length * m).astype(np.int)
+    mu_2 = hrf_2[ind2] * etas
+
+    return mu_1, mu_2
+
+
 def _get_gp_kernels(beta_values, eta_weighted_cov, eta_weighted_cross_cov,
-                    beta_indices):
+                    beta_indices, mu_1):
     """
     """
     col_coordinates = np.concatenate(
@@ -184,13 +241,14 @@ def _get_gp_kernels(beta_values, eta_weighted_cov, eta_weighted_cross_cov,
 
     K = collapser.T.dot(collapser.T.dot(eta_weighted_cov).T).T
     K_cross = collapser.T.dot(eta_weighted_cross_cov.T).T  # again
+    mu_n = collapser.T.dot(mu_1.T).T.shape
 
-    return K, K_cross
+    return K, K_cross, mu_n
 
 
-def _get_hrf_values_from_betas(ys, beta_values, eta_weighted_cov,
+def _get_hrf_values_from_betas_b(ys, beta_values, eta_weighted_cov,
                                eta_weighted_cross_cov, beta_indices,
-                               sigma_noise, K_22=None):
+                               sigma_noise, mu_1=None, mu_2=None, K_22=None):
 
     K, K_cross =  _get_gp_kernels(beta_values, eta_weighted_cov,
                                   eta_weighted_cross_cov, beta_indices)
@@ -215,8 +273,38 @@ def _get_hrf_values_from_betas(ys, beta_values, eta_weighted_cov,
     return mu_bar
 
 
+def _get_hrf_values_from_betas(ys, beta_values, eta_weighted_cov,
+                               eta_weighted_cross_cov, beta_indices,
+                               sigma_noise, mu_1=None, mu_m=None, K_22=None):
+    K, K_cross, mu_n =  _get_gp_kernels(beta_values, eta_weighted_cov,
+                                  eta_weighted_cross_cov, beta_indices, mu_1)
+
+    # Adding noise to the diagonal (Ridge)
+    K[np.diag_indices_from(K)] += sigma_noise ** 2
+
+    print 'ys shape is ', ys.shape
+    print 'mu_1 shape is ', mu_1.shape
+    L = cholesky(K, lower=True)
+    print 'L shape is ', L.shape
+    alpha = cho_solve((L, True), ys - mu_n) # a.k.a. dual coef
+    mu_bar = K_cross.dot(alpha) + mu_m
+
+    if K_22 is not None:
+        L_inv = solve_triangular(L.T, np.eye(L.shape[0]))
+        K_inv = L_inv.dot(L_inv.T)
+        var_bar = np.diag(K_22) - np.einsum("ki,kj,ij->k", K_cross, K_cross,
+                                            K_inv)
+
+        check_negative_var = var_bar < 0.
+        if np.any(check_negative_var):
+            var_bar[check_negative_var] = 0.
+
+        return mu_bar, var_bar
+    return mu_bar
+
+
 def _get_betas_and_hrf(ys, betas, pre_cov, pre_cross_cov, beta_indices,
-                       sigma_noise, n_iter=10, K_22=None):
+                       sigma_noise, n_iter=10, mu_1=None, mu_2=None,K_22=None):
     """Alternate optimization: Find HRF, build a new design matrix and repeat
     """
     all_hrf_values = []
@@ -227,7 +315,9 @@ def _get_betas_and_hrf(ys, betas, pre_cov, pre_cross_cov, beta_indices,
         hrf_values, hrf_var = _get_hrf_values_from_betas(ys, betas, pre_cov,
                                                          pre_cross_cov,
                                                          beta_indices,
-                                                         sigma_noise, K_22=K_22)
+                                                         sigma_noise, mu_1=mu_1,
+                                                         mu_m=mu_2, K_22=K_22)
+
         design = _get_design_from_hrf_measures(hrf_values, beta_indices)
         # Least squares estimation
         betas = np.linalg.pinv(design).dot(ys)
@@ -251,9 +341,13 @@ def get_hrf_fit(ys, hrf_measurement_points, visible_events, etas, beta_indices,
         hrf_measurement_points, etas, evaluation_points=evaluation_points,
         theta=theta, return_eval_cov=True)
 
+    mu_1, mu_2 = _eta_weighted_hrf(hrf_measurement_points, etas,
+                                   pre_cross_cov.shape[1], pre_cross_cov.shape[0],
+                                   evaluation_points=evaluation_points)
+
     (betas, hrf_values, hrf_var, all_hrf_values, all_hrf_var, all_designs, all_betas) = \
         _get_betas_and_hrf(ys, betas, pre_cov, pre_cross_cov, beta_indices,
-                           sigma_noise, n_iter=n_iter, K_22=K_22)
+                           sigma_noise, n_iter=n_iter, K_22=K_22, mu_1=mu_1, mu_2=mu_2)
 
     return (betas, (hrf_measurement_points, hrf_values, hrf_var), all_hrf_values,
             all_designs, all_betas)
@@ -438,6 +532,13 @@ if __name__ == '__main__':
     plt.fill_between(hx, hy - 1.96 * np.sqrt(hrf_var),
                      hy + 1.96 * np.sqrt(hrf_var), alpha=0.1)
     plt.plot(hx, hy)
+
+    hrf_model = 'bezier'
+    print hx.shape
+    dt = 0.01
+    #hrf_0 = _get_hrf_model(hrf_model, hrf_length=hrf_length,
+    #                      dt=dt, normalize=False)
+    #plt.plot(xrange(0, hrf_length, dt), hrf_0, 'r--')
     plt.show()
 
     # ###########################################################################
