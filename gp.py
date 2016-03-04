@@ -4,7 +4,6 @@ This implementation is based on scikit learn and Michael's implementation
 """
 # TODO add hrf as a mean for the gp
 # TODO add more kernels
-# TODO add hrf as a men for the gp
 # TODO add hyperparameter optimization
 
 import numpy as np
@@ -46,26 +45,6 @@ def _get_design_from_hrf_measures(hrf_measures, beta_indices):
 
         pointer += len(beta_ind)
     return design
-
-
-
-# TODO add a function with more kernels
-def _get_kernel(X, Y=None, kernel='linear', gamma=1., degree=0, coef0=0, tau=1.):
-
-    X = np.atleast_1d(X)
-
-    if callable(kernel):
-        params = kernel_params or {}
-    else:
-        params = {"gamma": gamma, "degree": degree, "coef0": coef0}
-
-    if Y is None:
-        diff_squared = (X.reshape(-1, 1) - X.reshape(-1)) ** 2
-    else:
-        diff_squared = (X.reshape(-1, 1) - Y.reshape(-1)) ** 2
-
-    return tau * np.exp(-diff_squared / gamma)
-
 
 
 def _get_hrf_measurements(paradigm, hrf_length=32., t_r=2, time_offset=10):
