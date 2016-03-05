@@ -125,7 +125,7 @@ class SuperDuperGP(BaseEstimator, RegressorMixin):
     """
     """
     def __init__(self, hrf_length=32., t_r=2, time_offset=10, kernel=None,
-                 modulation=None, sigma_noise=0.001, theta=[1., 1.],
+                 modulation=None, sigma_noise=0.001, gamma=1.,
                  fmin_max_iter=10, n_iter=10, hrf_model=None,
                  normalize_y=False, optimize=False, return_var=True,
                  verbose=True):
@@ -134,7 +134,7 @@ class SuperDuperGP(BaseEstimator, RegressorMixin):
         self.modulation = modulation
         self.time_offset = time_offset
         self.sigma_noise = sigma_noise
-        self.theta = theta
+        self.gamma = gamma
         self.fmin_max_iter = fmin_max_iter
         self.n_iter = n_iter
         self.hrf_model = hrf_model
@@ -239,14 +239,13 @@ class SuperDuperGP(BaseEstimator, RegressorMixin):
         etas = np.concatenate(etas)
 
         # Initialize the kernel
-        self.hrf_kernel = HRFKernel(kernel=self.kernel,
+        self.hrf_kernel = HRFKernel(kernel=self.kernel, gamma=self.gamma,
                                     return_eval_cov=self.return_var)
 
         # Maximizing the log-likelihood (gradient based optimization)
-        if self.optimize:
-
-            def obj_func(theta, eval_gradient=False):
-                return -self.log_marginal_likelihood(self, theta)
+        # if self.optimize:
+            # def obj_func(theta, eval_gradient=False):
+            #     return -self.log_marginal_likelihood(self, theta)
 
         output = self._fit(ys,
                            hrf_measurement_points=self.hrf_measurement_points,
@@ -351,16 +350,17 @@ if __name__ == '__main__':
     ###########################################################################
     # GP parameters
     hrf_length = 24
-    theta = [10., 1.]
+    # theta = [10., 1.]
     time_offset = 10
+    gamma = 1.
     fmin_max_iter = 20
     n_iter = 10
     normalize_y = False
 
     gp = SuperDuperGP(hrf_length=hrf_length, modulation=modulation,
-                      theta=theta, fmin_max_iter=fmin_max_iter,
+                      gamma=gamma, fmin_max_iter=fmin_max_iter,
                       sigma_noise=sigma_noise, time_offset=time_offset,
-                      n_iter=n_iter, normalize_y=normalize_y)
+                      n_iter=n_iter, normalize_y=normalize_y, verbose=True)
 
     design = design[event_types].values  # forget about drifts for the moment
     beta = rng.randn(len(event_types))
