@@ -48,7 +48,8 @@ def _get_design_from_hrf_measures(hrf_measures, beta_indices):
     return design
 
 
-def _get_hrf_measurements(paradigm, hrf_length=32., t_r=2, time_offset=10):
+def _get_hrf_measurements(paradigm, hrf_length=32., t_r=2, time_offset=10,
+                          zeros_extremes=False):
     """This function:
     Parameters
     ----------
@@ -74,10 +75,15 @@ def _get_hrf_measurements(paradigm, hrf_length=32., t_r=2, time_offset=10):
 
     unique_events, event_type_indices = np.unique(names, return_inverse=True)
 
-    hrf_measurement_points = [list() for _ in range(len(frame_times))]
-    etas = [list() for _ in range(len(frame_times))]
-    beta_indices = [list() for _ in range(len(frame_times))]
-    visible_events = [list() for _ in range(len(frame_times))]
+    if zeros_extremes:
+        lft = len(frame_times) + 2
+    else:
+        lft = len(frame_times)
+
+    hrf_measurement_points = [list() for _ in range(lft)]
+    etas = [list() for _ in range(lft)]
+    beta_indices = [list() for _ in range(lft)]
+    visible_events = [list() for _ in range(lft)]
 
     for frame_id, event_id in zip(belong_to_measurement, which_event):
         hrf_measurement_points[frame_id].append(time_differences[frame_id,
@@ -85,6 +91,16 @@ def _get_hrf_measurements(paradigm, hrf_length=32., t_r=2, time_offset=10):
         etas[frame_id].append(modulation[event_id])
         beta_indices[frame_id].append(event_type_indices[event_id])
         visible_events[frame_id].append(event_id)
+
+    if zeros_extremes:
+        hrf_measurement_points[frame_id + 1].append(0.)
+        hrf_measurement_points[frame_id + 2].append(hrf_length)
+        etas[frame_id + 1].append(modulation[event_id])
+        etas[frame_id + 2].append(modulation[event_id])
+        beta_indices[frame_id + 1].append(event_type_indices[event_id])
+        beta_indices[frame_id + 2].append(event_type_indices[event_id])
+        visible_events[frame_id + 1].append(event_id)
+        visible_events[frame_id + 2].append(event_id)
 
     return (hrf_measurement_points, visible_events, etas, beta_indices,
             unique_events)
@@ -205,12 +221,18 @@ def _get_gp_kernels(beta_values, eta_weighted_cov, eta_weighted_cross_cov,
 
 def _get_hrf_values_from_betas(ys, beta_values, eta_weighted_cov,
                                eta_weighted_cross_cov, beta_indices,
-                               sigma_noise, pre_mu_n=None, mu_m=None, K_22=None):
+                               sigma_noise, pre_mu_n=None, mu_m=None,
+                               K_22=None, zeros_extremes=False):
+
     K, K_cross, mu_n = _get_gp_kernels(beta_values, eta_weighted_cov,
                             eta_weighted_cross_cov, beta_indices, pre_mu_n)
 
     # Adding noise to the diagonal (Ridge)
     K[np.diag_indices_from(K)] += sigma_noise ** 2
+
+    if zeros_extremes:
+        K[-1, -1] -= sigma_noise ** 2
+        K[-2, -2] -= sigma_noise ** 2
 
     L = cholesky(K, lower=True)
     alpha = cho_solve((L, True), ys - mu_n)  # a.k.a. dual coef
@@ -231,8 +253,8 @@ def _get_hrf_values_from_betas(ys, beta_values, eta_weighted_cov,
 
 
 def _get_betas_and_hrf(ys, betas, pre_cov, pre_cross_cov, beta_indices,
-                       sigma_noise, n_iter=10,
-                       pre_mu_n=None, pre_mu_m=None, K_22=None):
+                       sigma_noise, n_iter=10, pre_mu_n=None, pre_mu_m=None,
+                       K_22=None, zeros_extremes=False):
     """Alternate optimization: Find HRF, build a new design matrix and repeat
     """
     all_hrf_values = []
@@ -244,7 +266,8 @@ def _get_betas_and_hrf(ys, betas, pre_cov, pre_cross_cov, beta_indices,
                                                          pre_cross_cov,
                                                          beta_indices, sigma_noise,
                                                          pre_mu_n=pre_mu_n,
-                                                         mu_m=pre_mu_m, K_22=K_22)
+                                                         mu_m=pre_mu_m, K_22=K_22,
+                                                         zeros_extremes=zeros_extremes)
 
         design = _get_design_from_hrf_measures(hrf_values, beta_indices)
         # Least squares estimation
@@ -262,7 +285,7 @@ def _get_betas_and_hrf(ys, betas, pre_cov, pre_cross_cov, beta_indices,
 def get_hrf_fit(ys, hrf_measurement_points, visible_events, etas, beta_indices,
                 initial_beta, unique_events, theta, sigma_noise,
                 evaluation_points=None, max_iter=20, n_iter=20,
-                hrf_model='gamma', hrf_length=25.):
+                hrf_model='gamma', hrf_length=25., zeros_extremes=False):
 
     betas = initial_beta.copy()
 
@@ -273,9 +296,9 @@ def get_hrf_fit(ys, hrf_measurement_points, visible_events, etas, beta_indices,
                                       hrf_model=hrf_model, hrf_length=hrf_length)
 
     (betas, hrf_values, hrf_var, all_hrf_values, all_hrf_var, all_designs, all_betas) = \
-        _get_betas_and_hrf(ys, betas, pre_cov, pre_cross_cov, beta_indices,
-                           sigma_noise, n_iter=n_iter, K_22=K_22,
-                           pre_mu_n=pre_mu_n, pre_mu_m=pre_mu_m)
+        _get_betas_and_hrf(ys, betas, pre_cov, pre_cross_cov, beta_indices, sigma_noise,
+                           n_iter=n_iter, K_22=K_22, pre_mu_n=pre_mu_n,
+                           pre_mu_m=pre_mu_m, zeros_extremes=zeros_extremes)
 
     return (betas, (hrf_measurement_points, hrf_values, hrf_var), all_hrf_values,
             all_designs, all_betas)
@@ -302,16 +325,22 @@ class SuperDuperGP(BaseEstimator, RegressorMixin):
 
     def fit(self, ys, paradigm, initial_beta=None):
 
+        zeros_extremes = True
         ys = np.atleast_1d(ys)
+
         if self.normalize_y:
             self.y_train_mean = np.mean(ys, axis=0)
             ys = ys - self.y_train_mean
         else:
             self.y_train_mean = np.zeros(1)
 
+        if zeros_extremes:
+            ys = np.append(ys, np.array([0., 0.]))
+
         hrf_measurement_points, visible_events, etas, beta_indices, unique_events = \
             _get_hrf_measurements(paradigm, hrf_length=self.hrf_length,
-                                  t_r=self.t_r, time_offset=self.time_offset)
+                                  t_r=self.t_r, time_offset=self.time_offset,
+                                  zeros_extremes=zeros_extremes)
         if initial_beta is None:
             initial_beta = np.ones(len(unique_events))
 
@@ -328,7 +357,8 @@ class SuperDuperGP(BaseEstimator, RegressorMixin):
                              theta=self.theta_0, max_iter=self.fmin_max_iter,
                              n_iter=self.n_iter,
                              sigma_noise=self.sigma_noise_0,
-                             hrf_model='gamma', hrf_length=self.hrf_length)
+                             hrf_model='gamma', hrf_length=self.hrf_length,
+                             zeros_extremes=zeros_extremes)
 
         hrf_measurement_points = np.concatenate(output[1][0])
         order = np.argsort(hrf_measurement_points)
