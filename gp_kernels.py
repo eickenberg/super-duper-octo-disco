@@ -8,7 +8,7 @@ from scipy.sparse import coo_matrix
 # from scipy.optimize import fmin_cobyla
 from sklearn.gaussian_process.kernels import (Kernel, RBF,
                                               StationaryKernelMixin)
-from sklearn.gaussian_process.kernels import ConstantKernel
+from sklearn.gaussian_process.kernels import ConstantKernel, Hyperparameter
 
 
 ###############################################################################
@@ -25,14 +25,17 @@ class HRFKernel(StationaryKernelMixin, Kernel):
     beta_indices: list of list
     etas: array_like, amplitude of the event
     """
-    def __init__(self, gamma=10., kernel=None, beta_values=None,
-                 beta_indices=None, etas=None, return_eval_cov=True):
+    def __init__(self, gamma=10., gamma_bounds=(1e-5, 1e5), kernel=None,
+                 beta_values=None, beta_indices=None, etas=None,
+                 return_eval_cov=True):
         self.return_eval_cov = return_eval_cov
         self.beta_values = beta_values
         self.beta_indices = beta_indices
         self.etas = etas
         self.kernel = kernel
-        self.gamma = gamma
+        self.gamma = float(gamma)
+        self.hyperparameter_gamma = Hyperparameter("gamma", "numeric",
+                                                   gamma_bounds)
 
     def _eta_weighted_kernel(self, hrf_measurement_points,
                              evaluation_points=None):
