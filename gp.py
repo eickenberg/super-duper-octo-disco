@@ -148,6 +148,8 @@ class SuperDuperGP(BaseEstimator, RegressorMixin):
                                    pre_cov, pre_cross_cov, K_22):
         """This function returns the HRF estimation given information about
         beta (i.e. beta_values, beta_indices)
+
+        Rasmussen and Williams. Varying the hyperparameters (Alg. 2.1)
         """
         # Updating the parameters of the kernel
         kernel = self.hrf_kernel.clone_with_params(**dict(
@@ -280,6 +282,8 @@ class SuperDuperGP(BaseEstimator, RegressorMixin):
     def log_marginal_likelihood(self, sigma_noise=0.001, theta=None,
                                 eval_gradient=None):
         """This functions return the marginal log-likelihood
+
+        Rasmussen and Williams, model selection(E.q. 5.8)
 
         Parameters
         ----------
