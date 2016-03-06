@@ -439,7 +439,7 @@ if __name__ == '__main__':
     n_restarts_optimizer = 0
     n_iter = 10
     normalize_y = False
-    optimize = True
+    optimize = False
     sigma_noise = 0.01
     zeros_extremes = True
 
