@@ -38,8 +38,8 @@ class HRFKernel(StationaryKernelMixin, Kernel):
         self.hyperparameter_gamma = Hyperparameter("gamma", "numeric",
                                                    gamma_bounds)
 
-    def _eta_weighted_kernel(self, hrf_measurement_points, f_mean=None,
-                             evaluation_points=None):
+    def _eta_weighted_kernel(self, hrf_measurement_points,
+                             evaluation_points=None, f_mean=None):
         """This function computes the kernel matrix of all measurement points,
         potentially redundantly per measurement points, just to be sure we
         identify things correctly afterwards.
@@ -108,7 +108,8 @@ class HRFKernel(StationaryKernelMixin, Kernel):
 
         return K, K_cross, mu_n
 
-    def __call__(self, hrf_measurement_points, evaluation_points=None):
+    def __call__(self, hrf_measurement_points, evaluation_points=None,
+                 f_mean=None):
         """
         """
         if evaluation_points is None:
@@ -118,7 +119,7 @@ class HRFKernel(StationaryKernelMixin, Kernel):
             eta_weighted_cov, eta_weighted_cross_cov, \
             eta_weighted_mean_n, mu_m, K_22 = \
                 self._eta_weighted_kernel(hrf_measurement_points,
-                                          evaluation_points)
+                                          evaluation_points, f_mean)
             K, K_cross, mu_n = self._fit_hrf_kernel(eta_weighted_cov,
                                               eta_weighted_cross_cov,
                                               eta_weighted_mean_n)
@@ -127,7 +128,7 @@ class HRFKernel(StationaryKernelMixin, Kernel):
             eta_weighted_cov, eta_weighted_cross_cov, \
             eta_weighted_mean_n, mu_m = \
                 self._eta_weighted_kernel(hrf_measurement_points,
-                                          evaluation_points)
+                                          evaluation_points, f_mean)
             K, K_cross, mu_n = self._fit_hrf_kernel(eta_weighted_cov,
                                                     eta_weighted_cross_cov,
                                                     eta_weighted_mean_n)

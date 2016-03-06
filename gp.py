@@ -194,7 +194,7 @@ class SuperDuperGP(BaseEstimator, RegressorMixin):
             K[indx, indy] += self.sigma_noise ** 2
 
         L = cholesky(K, lower=True)
-        alpha = cho_solve((L, True), ys - mu_n) # a.k.a. dual coef
+        alpha = cho_solve((L, True), ys - mu_n)
         mu_bar = K_cross.dot(alpha) + mu_m
 
         if K_22 is not None:
@@ -225,7 +225,7 @@ class SuperDuperGP(BaseEstimator, RegressorMixin):
         # Getting eta weighted matrices
         pre_cov, pre_cross_cov, pre_mean_n, pre_mean_m, \
         K_22 = kernel._eta_weighted_kernel(
-                    hrf_measurement_points, f_mean, evaluation_points)
+                    hrf_measurement_points, evaluation_points, f_mean)
 
         all_hrf_values = []
         all_hrf_var = []
@@ -376,25 +376,27 @@ class SuperDuperGP(BaseEstimator, RegressorMixin):
             return -np.inf
 
         y_train = self.y_train
-        y_train = y_train[:, np.newaxis]
-        alpha = cho_solve((L, True), ys) # a.k.a. dual coef
+        # XXX this shold not be here, waiting to refator it
+        if self.zeros_extremes:
+            y_train = np.append(y_train, np.array([0., 0.]))
 
-        # alpha = alpha[:, np.newaxis]
-        loglikelihood_dims = -0.5 * np.einsum("ik,jk->k", y_train, alpha)
-        # loglikelihood_dims = -0.5 * y_train.T.dot(alpha) # data fit
-        # model compkexity
-        loglikelihood_dims -= np.log(np.diag(L)).sum()
-        # normalization constant
-        loglikelihood_dims -= K.shape[0] / 2 * np.log(2 * np.pi)
+        fs = y_train - mu_n
+        y_train = fs[:, np.newaxis]
+        alpha = cho_solve((L, True), fs)
+
+        data_fit = 0.5 * fs.T.dot(alpha)
+        model_complexity = np.log(np.diag(L)).sum()
+        normal_const = K.shape[0] / 2 * np.log(2 * np.pi)
+        loglikelihood_dims = -data_fit - model_complexity - normal_const
         # sum over all dim (sklearn)
         loglikelihood = loglikelihood_dims.sum(-1)
 
-        print kernel.theta[0], loglikelihood
+        print kernel.theta[0], data_fit, model_complexity, normal_const
         return loglikelihood
 
     def _constrained_optimization(self, obj_func, initial_theta, bounds):
         theta_opt, func_min, convergence_dict = fmin_l_bfgs_b(
-            obj_func, initial_theta, maxiter=self.fmin_max_iter, bounds=bounds,
+            obj_func, initial_theta, maxfun=self.fmin_max_iter, bounds=bounds,
             approx_grad=True)
         if convergence_dict["warnflag"] != 0:
             warnings.warn("something happended!: %s " % convergence_dict)
@@ -434,7 +436,7 @@ if __name__ == '__main__':
     time_offset = 10
     gamma = 10.0
     fmin_max_iter = 10
-    n_restarts_optimizer = 5
+    n_restarts_optimizer = 0
     n_iter = 10
     normalize_y = False
     optimize = True
