@@ -381,23 +381,31 @@ if __name__ == '__main__':
     n_blank_events = 50
     event_spacing = 6
     t_r = 2
+    hrf_length = 24
+    time_offset = 10
     jitter_min, jitter_max = -1, 1
     event_types = ['evt_1', 'evt_2', 'evt_3', 'evt_4', 'evt_5', 'evt_6']
-    sigma_noise = .1
+    sigma_noise = 1.1
+
+    # Mean function of GP set to a certain HRF model
+    hrf_model = 'glover'
+    dt = 0.1
+    x_0 = np.arange(0, hrf_length + dt, dt)
+    hrf_0 = _get_hrf_model(hrf_model, hrf_length=hrf_length + dt,
+                           dt=dt, normalize=True)
+    f_hrf_sim = interp1d(x_0, hrf_0)
 
     paradigm, design, modulation, measurement_time = \
         generate_spikes_time_series(n_events=n_events,
                                     n_blank_events=n_blank_events,
                                     event_spacing=event_spacing, t_r=t_r,
+                                    hrf_length=hrf_length, f_hrf=f_hrf_sim,
                                     return_jitter=True, jitter_min=jitter_min,
-                                    jitter_max=jitter_max,
-                                    event_types=event_types, period_cut=64,
-                                    time_offset=10, modulation=None, seed=seed)
+                                    jitter_max=jitter_max, event_types=event_types,
+                                    period_cut=64, time_offset=time_offset,
+                                    modulation=None, seed=seed)
     ###########################################################################
     # GP parameters
-    hrf_length = 24
-    # theta = [10., 1.]
-    time_offset = 10
     gamma = 1.
     fmin_max_iter = 20
     n_iter = 10

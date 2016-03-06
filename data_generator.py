@@ -4,7 +4,11 @@ import nibabel as nb
 from sklearn.utils import check_random_state
 from nilearn.input_data import NiftiMasker
 from scipy.ndimage.filters import gaussian_filter1d
-from nistats.design_matrix import make_design_matrix
+from scipy.interpolate import interp1d
+from nistats.experimental_paradigm import check_paradigm
+from nistats.design_matrix import (make_design_matrix, full_rank, _make_drift)
+from gp import (_get_design_from_hrf_measures,
+                _get_hrf_measurements, _get_hrf_model)
 
 
 def generate_mask_condition(n_x=10, n_y=10, n_z=10, sigma=1., threshold=0.5,
@@ -36,12 +40,131 @@ def generate_mask_condition(n_x=10, n_y=10, n_z=10, sigma=1., threshold=0.5,
     return mask_img
 
 
+def make_design_matrix_hrf(
+    frame_times, paradigm=None, hrf_length=32., t_r=2., time_offset=10,
+    drift_model='cosine', period_cut=128, drift_order=1, fir_delays=[0],
+    add_regs=None, add_reg_names=None, min_onset=-24, f_hrf=None):
+    """Generate a design matrix from the input parameters
+
+    Parameters
+    ----------
+    frame_times : array of shape (n_frames,)
+        The timing of the scans in seconds.
+
+    paradigm : DataFrame instance, optional
+        Description of the experimental paradigm.
+
+    drift_model : string, optional
+        Specifies the desired drift model,
+        It can be 'polynomial', 'cosine' or 'blank'.
+
+    period_cut : float, optional
+        Cut period of the low-pass filter in seconds.
+
+    drift_order : int, optional
+        Order of the drift model (in case it is polynomial).
+
+    fir_delays : array of shape(n_onsets) or list, optional,
+        In case of FIR design, yields the array of delays used in the FIR
+        model.
+
+    add_regs : array of shape(n_frames, n_add_reg), optional
+        additional user-supplied regressors
+
+    add_reg_names : list of (n_add_reg,) strings, optional
+        If None, while n_add_reg > 0, these will be termed
+        'reg_%i', i = 0..n_add_reg - 1
+
+    min_onset : float, optional
+        Minimal onset relative to frame_times[0] (in seconds)
+        events that start before frame_times[0] + min_onset are not considered.
+
+    Returns
+    -------
+    design_matrix : DataFrame instance,
+        holding the computed design matrix
+    """
+    # check arguments
+    # check that additional regressor specification is correct
+    n_add_regs = 0
+    if add_regs is not None:
+        if add_regs.shape[0] == np.size(add_regs):
+            add_regs = np.reshape(add_regs, (np.size(add_regs), 1))
+        n_add_regs = add_regs.shape[1]
+        assert add_regs.shape[0] == np.size(frame_times), ValueError(
+            'incorrect specification of additional regressors: '
+            'length of regressors provided: %s, number of ' +
+            'time-frames: %s' % (add_regs.shape[0], np.size(frame_times)))
+
+    # check that additional regressor names are well specified
+    if add_reg_names is None:
+        add_reg_names = ['reg%d' % k for k in range(n_add_regs)]
+    elif len(add_reg_names) != n_add_regs:
+        raise ValueError(
+            'Incorrect number of additional regressor names was provided'
+            '(%s provided, %s expected) % (len(add_reg_names),'
+            'n_add_regs)')
+
+    # computation of the matrix
+    names = []
+    matrix = None
+
+    # step 1: paradigm-related regressors
+    if paradigm is not None:
+        # create the condition-related regressors
+        names, _, _, _ = check_paradigm(paradigm)
+        hrf_measurement_points, _, _, beta_indices, _ = \
+                    _get_hrf_measurements(paradigm, hrf_length=hrf_length,
+                              t_r=t_r, time_offset=time_offset)
+        hrf_measurement_points = np.concatenate(hrf_measurement_points)
+
+        if f_hrf is None:
+            hrf_model = 'glover'
+            dt = 0.1
+            x_0 = np.arange(0, hrf_length + dt, dt)
+            hrf_0 = _get_hrf_model('glover', hrf_length=hrf_length + dt,
+                                    dt=dt, normalize=True)
+            f_hrf = interp1d(x_0, hrf_0)
+
+        hrf_measures = f_hrf(hrf_measurement_points)
+        matrix = _get_design_from_hrf_measures(hrf_measures, beta_indices)
+        #matrix, names = _convolve_regressors(
+        #    paradigm, hrf_model.lower(), frame_times, fir_delays, min_onset)
+
+    # step 2: additional regressors
+    if add_regs is not None:
+        # add user-supplied regressors and corresponding names
+        if matrix is not None:
+            matrix = np.hstack((matrix, add_regs))
+        else:
+            matrix = add_regs
+        names += add_reg_names
+
+    # step 3: drifts
+    drift, dnames = _make_drift(drift_model.lower(), frame_times, drift_order,
+                                period_cut)
+
+    if matrix is not None:
+        matrix = np.hstack((matrix, drift))
+    else:
+        matrix = drift
+
+    names += dnames
+
+    # step 4: Force the design matrix to be full rank at working precision
+    matrix, _ = full_rank(matrix)
+
+    design_matrix = pd.DataFrame(
+        matrix, columns=names, index=frame_times)
+    return design_matrix
+
+
 def generate_spikes_time_series(n_events=200, n_blank_events=50,
-                                event_spacing=6, t_r=2,
+                                event_spacing=6, t_r=2, hrf_length=32.,
                                 event_types=['ev1', 'ev2'], period_cut=64,
                                 jitter_min=-1, jitter_max=1,
                                 return_jitter=False, time_offset=10,
-                                modulation=None, seed=None):
+                                modulation=None, seed=None, f_hrf=None):
     """Voxel-level activations
 
     Parameters
@@ -86,8 +209,15 @@ def generate_spikes_time_series(n_events=200, n_blank_events=50,
         onsets += rng.uniform(jitter_min, jitter_max, len(onsets))
 
     paradigm = pd.DataFrame.from_dict(dict(onset=onsets, name=names))
-    design = make_design_matrix(measurement_times, paradigm=paradigm,
-                                period_cut=period_cut)
+
+    f_hrf = None
+    if f_hrf is None:
+        design = make_design_matrix(measurement_times, paradigm=paradigm,
+                                    period_cut=period_cut)
+    else:
+        design = make_design_matrix_hrf(measurement_times, paradigm=paradigm,
+                                    period_cut=period_cut, hrf_length=hrf_length,
+                                    t_r=t_r, time_offset=time_offset)
 
     return paradigm, design, modulation, measurement_times
 
