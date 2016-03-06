@@ -9,17 +9,15 @@ This implementation is based on scikit learn and Michael's implementation
 import numpy as np
 from sklearn.base import BaseEstimator, RegressorMixin, clone
 from sklearn.utils import check_random_state
-from scipy.sparse import coo_matrix
 from nistats.experimental_paradigm import check_paradigm
 from sklearn.utils.validation import check_is_fitted
-# from scipy.optimize import fmin_cobyla
+from scipy.optimize import fmin_l_bfgs_b
 from scipy.linalg import (cholesky, cho_solve, solve_triangular, LinAlgError)
 from nistats.hemodynamic_models import spm_hrf, glover_hrf
 from hrf import bezier_hrf, physio_hrf
-from sklearn.gaussian_process.kernels import (Kernel, RBF,
-                                              StationaryKernelMixin)
 import warnings
 from gp_kernels import HRFKernel
+from operator import itemgetter
 
 
 ###############################################################################
@@ -128,7 +126,7 @@ class SuperDuperGP(BaseEstimator, RegressorMixin):
                  modulation=None, sigma_noise=0.001, gamma=1.,
                  fmin_max_iter=10, n_iter=10, hrf_model=None,
                  normalize_y=False, optimize=False, return_var=True,
-                 verbose=True):
+                 random_state=None, verbose=True, n_restarts_optimizer=3):
         self.t_r = t_r
         self.hrf_length = hrf_length
         self.modulation = modulation
@@ -142,7 +140,9 @@ class SuperDuperGP(BaseEstimator, RegressorMixin):
         self.optimize = optimize
         self.kernel = kernel
         self.return_var = return_var
+        self.random_state = random_state
         self.verbose = verbose
+        self.n_restarts_optimizer = n_restarts_optimizer
 
     def _get_hrf_values_from_betas(self, ys, beta_values, beta_indices, etas,
                                    pre_cov, pre_cross_cov, K_22):
@@ -219,6 +219,8 @@ class SuperDuperGP(BaseEstimator, RegressorMixin):
 
     def fit(self, ys, paradigm, initial_beta=None):
 
+        rng = check_random_state(self.random_state)
+
         ys = np.atleast_1d(ys)
         if self.normalize_y:
             self.y_train_mean = np.mean(ys, axis=0)
@@ -245,9 +247,29 @@ class SuperDuperGP(BaseEstimator, RegressorMixin):
                                     return_eval_cov=self.return_var)
 
         # Maximizing the log-likelihood (gradient based optimization)
-        # if self.optimize:
-            # def obj_func(theta, eval_gradient=False):
-            #     return -self.log_marginal_likelihood(self, theta)
+        if self.optimize:
+            self.hrf_kernel.set_params(**dict(
+                beta_values=initial_beta, beta_indices=beta_indices, etas=etas))
+
+            def obj_func(theta):
+                return -self.log_marginal_likelihood(theta)
+
+            optima = [(self._constrained_optimization(
+                obj_func, self.hrf_kernel.theta, self.hrf_kernel.bounds))]
+
+            # Additional runs are performed from log-uniform chosen initial
+            # theta
+            if self.n_restarts_optimizer > 0:
+                bounds = self.hrf_kernel.bounds
+                for i in range(self.n_restarts_optimizer):
+                    theta_initial = rng.uniform(bounds[:, 0], bounds[:, 1])
+                    optima.append(self._constrained_optimization(
+                        obj_func, theta_initial, bounds))
+            # Select the best result
+            lm_values = list(map(itemgetter(1), optima))
+            self.theta_ = optima[np.argmin(lm_values)][0]
+            self.hrf_kernel.theta = self.theta_
+            self.log_marginal_likelihood_value_ = -np.min(lm_values)
 
         output = self._fit(ys,
                            hrf_measurement_points=self.hrf_measurement_points,
@@ -279,8 +301,8 @@ class SuperDuperGP(BaseEstimator, RegressorMixin):
         """
         pass
 
-    def log_marginal_likelihood(self, sigma_noise=0.001, theta=None,
-                                eval_gradient=None):
+    def log_marginal_likelihood(self, theta):
+    # , eval_gradient=None):
         """This functions return the marginal log-likelihood
 
         Rasmussen and Williams, model selection(E.q. 5.8)
@@ -299,30 +321,41 @@ class SuperDuperGP(BaseEstimator, RegressorMixin):
         see Rasmussen and Williams book, model selection in regression. Eq. 5.8
 
         """
-        y_train = self.y_train
-        y_train = y_train[:, np.newaxis]
-
-        # XXX may be the kernel should be an input
-        K, K_cross, _ = self.hrf_kernel(self.hrf_measurement_points)
+        kernel = self.hrf_kernel.clone_with_theta(theta)
+        K, K_cross, _ = kernel(self.hrf_measurement_points)
         # Adding noise to the diagonal (Ridge)
-        K[np.diag_indices_from(K)] += sigma_noise ** 2
+        K[np.diag_indices_from(K)] += self.sigma_noise ** 2
         try:
             L = cholesky(K, lower=True)
-            alpha = cho_solve((L, True), ys) # a.k.a. dual coef
-            alpha = alpha[:, np.newaxis]
 
         except LinAlgError:
-            loglikelihood = -np.inf
-            return loglikelihood
+            return -np.inf
 
-        loglikelihood_dims = -0.5 * np.einsum("ik,jk->k", y_train, alpha)
+        y_train = self.y_train
+        y_train = y_train[:, np.newaxis]
+        alpha = cho_solve((L, True), ys) # a.k.a. dual coef
+
+        # alpha = alpha[:, np.newaxis]
+        # loglikelihood_dims = -0.5 * np.einsum("ik,jk->k", y_train, alpha)
+        loglikelihood_dims = -0.5 * y_train.T.dot(alpha) # data fit
+        # model compkexity
         loglikelihood_dims -= np.log(np.diag(L)).sum()
         # normalization constant
         loglikelihood_dims -= K.shape[0] / 2 * np.log(2 * np.pi)
         # sum over all dim (sklearn)
         loglikelihood = loglikelihood_dims.sum(-1)
 
+        print kernel.theta[0], loglikelihood
         return loglikelihood
+
+    def _constrained_optimization(self, obj_func, initial_theta, bounds):
+        theta_opt, func_min, convergence_dict = fmin_l_bfgs_b(
+            obj_func, initial_theta, maxiter=self.fmin_max_iter, bounds=bounds,
+            approx_grad=True)
+        if convergence_dict["warnflag"] != 0:
+            warnings.warn("something happended!: %s " % convergence_dict)
+
+        return theta_opt, func_min
 
 
 if __name__ == '__main__':
@@ -342,7 +375,6 @@ if __name__ == '__main__':
     jitter_min, jitter_max = -1, 1
     event_types = ['evt_1', 'evt_2', 'evt_3', 'evt_4', 'evt_5', 'evt_6']
     sigma_noise = .01
-
     paradigm, design, modulation, measurement_time = \
         generate_spikes_time_series(n_events=n_events,
                                     n_blank_events=n_blank_events,
@@ -353,18 +385,22 @@ if __name__ == '__main__':
                                     time_offset=10, modulation=None, seed=seed)
     ###########################################################################
     # GP parameters
-    hrf_length = 24
-    # theta = [10., 1.]
+    hrf_length = 32
     time_offset = 10
-    gamma = 1.
-    fmin_max_iter = 20
+    gamma = 10.0
+    fmin_max_iter = 10
+    n_restarts_optimizer = 5
     n_iter = 10
     normalize_y = False
+    optimize = False
+    sigma_noise = 0.01
 
     gp = SuperDuperGP(hrf_length=hrf_length, modulation=modulation,
                       gamma=gamma, fmin_max_iter=fmin_max_iter,
                       sigma_noise=sigma_noise, time_offset=time_offset,
-                      n_iter=n_iter, normalize_y=normalize_y, verbose=True)
+                      n_iter=n_iter, normalize_y=normalize_y, verbose=True,
+                      optimize=optimize,
+                      n_restarts_optimizer=n_restarts_optimizer)
 
     design = design[event_types].values  # forget about drifts for the moment
     beta = rng.randn(len(event_types))
@@ -373,35 +409,9 @@ if __name__ == '__main__':
 
     hx, hy, hrf_var = gp.fit(ys, paradigm)
 
-
-    # gp.predict(paradigm)
-
     plt.fill_between(hx, hy - 1.96 * np.sqrt(hrf_var),
                      hy + 1.96 * np.sqrt(hrf_var), alpha=0.1)
     plt.plot(hx, hy)
+    # plt.axis([0, hrf_length, -0.02, 0.025])
+    # plt.axis('tight')
     plt.show()
-
-    # ###########################################################################
-    # # Testing
-    # ###########################################################################
-    # n_events = 200
-    # n_blank_events = 50
-    # event_spacing = 6
-    # t_r = 2
-    # jitter_min, jitter_max = -1, 1
-    # event_types = ['evt_1', 'evt_2', 'evt_3', 'evt_4', 'evt_5', 'evt_6']
-    # sigma_noise = .01
-
-    # paradigm, design, modulation, measurement_time = \
-    #     generate_spikes_time_series(n_events=n_events,
-    #                                 n_blank_events=n_blank_events,
-    #                                 event_spacing=event_spacing, t_r=t_r,
-    #                                 return_jitter=True, jitter_min=jitter_min,
-    #                                 jitter_max=jitter_max,
-    #                                 event_types=event_types, period_cut=64,
-    #                                 time_offset=10, modulation=None, seed=seed)
-
-
-
-
-
