@@ -8,31 +8,24 @@ This implementation is based on scikit learn and Michael's implementation
 
 import numpy as np
 from sklearn.base import BaseEstimator, RegressorMixin, clone
-from sklearn.utils import check_X_y, check_random_state
-# from sklearn.metrics import pairwise_kernels
+from sklearn.utils import check_random_state
 from scipy.sparse import coo_matrix
 from nistats.experimental_paradigm import check_paradigm
 from sklearn.utils.validation import check_is_fitted
-from scipy.optimize import fmin_cobyla
-from scipy.linalg import (cholesky, LinAlgError, solve, lstsq, cho_solve,
-                          solve_triangular)
-from scipy.interpolate import interp1d
-from nistats.hemodynamic_models import spm_hrf, glover_hrf, _gamma_difference_hrf
+# from scipy.optimize import fmin_cobyla
+from scipy.linalg import (cholesky, cho_solve, solve_triangular, LinAlgError)
+from nistats.hemodynamic_models import spm_hrf, glover_hrf
 from hrf import bezier_hrf, physio_hrf
+from sklearn.gaussian_process.kernels import (Kernel, RBF,
+                                              StationaryKernelMixin)
 import warnings
-
-# from joblib import delayed, Parallel
-# MACHINE_EPS = np.finfo(np.double).eps
-
-
-def _kernel(X, Y, theta=[1., 1.]):
-    gamma, tau = theta
-    X, Y = map(np.atleast_1d, (X, Y))
-    diff_squared = (X.reshape(-1, 1) - Y.reshape(-1)) ** 2
-
-    return np.exp(-diff_squared / gamma) * tau
+from gp_kernels import HRFKernel
+from scipy.interpolate import interp1d
 
 
+###############################################################################
+# HRF utils
+###############################################################################
 def _get_design_from_hrf_measures(hrf_measures, beta_indices):
     event_names = np.unique(np.concatenate(beta_indices)).astype('int')
 
@@ -57,6 +50,7 @@ def _get_hrf_measurements(paradigm, hrf_length=32., t_r=2, time_offset=10,
     hrf_length : float
     t_r : float
     time_offset : float
+    zeros_extremes : bool
 
     Returns
     -------
@@ -79,7 +73,6 @@ def _get_hrf_measurements(paradigm, hrf_length=32., t_r=2, time_offset=10,
         lft = len(frame_times) + 2
     else:
         lft = len(frame_times)
-
     hrf_measurement_points = [list() for _ in range(lft)]
     etas = [list() for _ in range(lft)]
     beta_indices = [list() for _ in range(lft)]
@@ -93,13 +86,14 @@ def _get_hrf_measurements(paradigm, hrf_length=32., t_r=2, time_offset=10,
         visible_events[frame_id].append(event_id)
 
     if zeros_extremes:
+        # we add first and last point of the hrf
         hrf_measurement_points[frame_id + 1].append(0.)
-        hrf_measurement_points[frame_id + 2].append(hrf_length)
         etas[frame_id + 1].append(modulation[event_id])
-        etas[frame_id + 2].append(modulation[event_id])
         beta_indices[frame_id + 1].append(event_type_indices[event_id])
-        beta_indices[frame_id + 2].append(event_type_indices[event_id])
         visible_events[frame_id + 1].append(event_id)
+        hrf_measurement_points[frame_id + 2].append(hrf_length)
+        etas[frame_id + 2].append(modulation[event_id])
+        beta_indices[frame_id + 2].append(event_type_indices[event_id])
         visible_events[frame_id + 2].append(event_id)
 
     return (hrf_measurement_points, visible_events, etas, beta_indices,
@@ -146,219 +140,154 @@ def _get_hrf_model(hrf_model=None, hrf_length=25., dt=1., normalize=False):
     return hrf_0
 
 
-def _eta_weighted_kernel_and_mean(hrf_measurement_points, etas,
-                           evaluation_points=None, theta=[1., 1.],
-                           return_eval_cov=False, hrf_model='gamma',
-                           hrf_length=25.):
-    """This function computes the kernel matrix of all measurement points,
-    potentially redundantly per measurement points, just to be sure we
-    identify things correctly afterwards.
-
-    If evaluation_points is set to None, then the original
-    hrf_measurement_points will be used
-
-    Parameters
-    ----------
-    hrf_measurement_points: list of list
-    etas: list of list
-    evaluation_points: list of list
-    theta: array-like, parameters of the kernel
-    return_eval_cov: bool
-
-    Returns
-    -------
-    pre_cov: array-like
-    pre_cross_cov: array-like
-    """
-    hrf_measurement_points = np.concatenate(hrf_measurement_points)
-
-    if evaluation_points is None:
-        evaluation_points = hrf_measurement_points
-
-    etas = np.concatenate(etas)
-    eta_weight = etas[:, np.newaxis] * etas
-
-    K = _kernel(hrf_measurement_points, hrf_measurement_points, theta=theta)
-    K_cross = _kernel(evaluation_points, hrf_measurement_points, theta=theta)
-
-    pre_cov = K * eta_weight
-    pre_cross_cov = K_cross * etas
-
-    dt = 0.01
-    x_0 = np.arange(0, hrf_length + dt, dt)
-    hrf_0 = _get_hrf_model(hrf_model, hrf_length=hrf_length + dt,
-                           dt=dt, normalize=False)
-    f = interp1d(x_0, hrf_0)
-    pre_mu_1 = f(hrf_measurement_points)
-    pre_mu_2 = f(hrf_measurement_points)
-
-    if return_eval_cov:
-        K_22 = _kernel(evaluation_points, evaluation_points, theta=theta)
-        return pre_cov, pre_cross_cov, pre_mu_1, pre_mu_2, K_22
-
-    return pre_cov, pre_cross_cov, pre_mu_1, pre_mu_2
-
-
-def _get_gp_kernels(beta_values, eta_weighted_cov, eta_weighted_cross_cov,
-                    beta_indices, pre_mu_n):
-    """
-    """
-    col_coordinates = np.concatenate(
-        [i * np.ones(len(beta_ind)) for i, beta_ind in enumerate(beta_indices)])
-
-    all_betas = beta_values[np.concatenate(beta_indices).astype('int')]
-
-    row_coordinates = np.arange(len(all_betas))
-    collapser = coo_matrix((all_betas, (row_coordinates, col_coordinates)),
-    shape = (len(all_betas), len(beta_indices))).tocsc()
-
-    K = collapser.T.dot(collapser.T.dot(eta_weighted_cov).T).T
-    K_cross = collapser.T.dot(eta_weighted_cross_cov.T).T  # again
-    mu_n = collapser.T.dot(pre_mu_n.T).T
-
-    return K, K_cross, mu_n
-
-
-def _get_hrf_values_from_betas(ys, beta_values, eta_weighted_cov,
-                               eta_weighted_cross_cov, beta_indices,
-                               sigma_noise, pre_mu_n=None, mu_m=None,
-                               K_22=None, zeros_extremes=False):
-
-    K, K_cross, mu_n = _get_gp_kernels(beta_values, eta_weighted_cov,
-                            eta_weighted_cross_cov, beta_indices, pre_mu_n)
-
-    # Adding noise to the diagonal (Ridge)
-    K[np.diag_indices_from(K)] += sigma_noise ** 2
-
-    if zeros_extremes:
-        K[-1, -1] -= sigma_noise ** 2
-        K[-2, -2] -= sigma_noise ** 2
-
-    L = cholesky(K, lower=True)
-    alpha = cho_solve((L, True), ys - mu_n)  # a.k.a. dual coef
-    mu_bar = K_cross.dot(alpha) + mu_m
-
-    if K_22 is not None:
-        L_inv = solve_triangular(L.T, np.eye(L.shape[0]))
-        K_inv = L_inv.dot(L_inv.T)
-        var_bar = np.diag(K_22) - np.einsum("ki,kj,ij->k", K_cross, K_cross,
-                                            K_inv)
-
-        check_negative_var = var_bar < 0.
-        if np.any(check_negative_var):
-            var_bar[check_negative_var] = 0.
-
-        return mu_bar, var_bar
-    return mu_bar
-
-
-def _get_betas_and_hrf(ys, betas, pre_cov, pre_cross_cov, beta_indices,
-                       sigma_noise, n_iter=10, pre_mu_n=None, pre_mu_m=None,
-                       K_22=None, zeros_extremes=False):
-    """Alternate optimization: Find HRF, build a new design matrix and repeat
-    """
-    all_hrf_values = []
-    all_hrf_var = []
-    all_designs = []
-    all_betas = []
-    for i in range(n_iter):
-        hrf_values, hrf_var = _get_hrf_values_from_betas(ys, betas, pre_cov,
-                                                         pre_cross_cov,
-                                                         beta_indices, sigma_noise,
-                                                         pre_mu_n=pre_mu_n,
-                                                         mu_m=pre_mu_m, K_22=K_22,
-                                                         zeros_extremes=zeros_extremes)
-
-        design = _get_design_from_hrf_measures(hrf_values, beta_indices)
-        # Least squares estimation
-        betas = np.linalg.pinv(design).dot(ys)
-
-        all_hrf_values.append(hrf_values)
-        all_hrf_var.append(hrf_var)
-        all_designs.append(design)
-        all_betas.append(betas)
-
-    return (betas, hrf_values, hrf_var, all_hrf_values, all_hrf_var, all_designs,
-            all_betas)
-
-
-def get_hrf_fit(ys, hrf_measurement_points, visible_events, etas, beta_indices,
-                initial_beta, unique_events, theta, sigma_noise,
-                evaluation_points=None, max_iter=20, n_iter=20,
-                hrf_model='gamma', hrf_length=25., zeros_extremes=False):
-
-    betas = initial_beta.copy()
-
-    pre_cov, pre_cross_cov, pre_mu_n, pre_mu_m, K_22 = \
-        _eta_weighted_kernel_and_mean(hrf_measurement_points, etas,
-                                      evaluation_points=evaluation_points,
-                                      theta=theta, return_eval_cov=True,
-                                      hrf_model=hrf_model, hrf_length=hrf_length)
-
-    (betas, hrf_values, hrf_var, all_hrf_values, all_hrf_var, all_designs, all_betas) = \
-        _get_betas_and_hrf(ys, betas, pre_cov, pre_cross_cov, beta_indices, sigma_noise,
-                           n_iter=n_iter, K_22=K_22, pre_mu_n=pre_mu_n,
-                           pre_mu_m=pre_mu_m, zeros_extremes=zeros_extremes)
-
-    return (betas, (hrf_measurement_points, hrf_values, hrf_var), all_hrf_values,
-            all_designs, all_betas)
-
-
+###############################################################################
+#
+###############################################################################
 class SuperDuperGP(BaseEstimator, RegressorMixin):
-
-    def __init__(self, hrf_length=32., t_r=2, time_offset=10,
-                 modulation=None, sigma_noise_0=0.001, theta_0=[1., 1.],
-                 copy=True, fmin_max_iter=10, n_iter=10, hrf_model=None,
-                 normalize_y=False, optimize=False):
+    """
+    """
+    def __init__(self, hrf_length=32., t_r=2, time_offset=10, kernel=None,
+                 modulation=None, sigma_noise=0.001, gamma=1.,
+                 fmin_max_iter=10, n_iter=10, hrf_model=None,
+                 normalize_y=False, optimize=False, return_var=True,
+                 zeros_extremes=False, verbose=True):
         self.t_r = t_r
         self.hrf_length = hrf_length
         self.modulation = modulation
         self.time_offset = time_offset
-        self.sigma_noise_0 = sigma_noise_0
-        self.theta_0 = theta_0
-        self.copy = copy
+        self.sigma_noise = sigma_noise
+        self.gamma = gamma
         self.fmin_max_iter = fmin_max_iter
         self.n_iter = n_iter
         self.hrf_model = hrf_model
         self.normalize_y = normalize_y
         self.optimize = optimize
+        self.kernel = kernel
+        self.return_var = return_var
+        self.zeros_extremes = zeros_extremes
+        self.verbose = verbose
+
+    def _get_hrf_values_from_betas(self, ys, beta_values, beta_indices, etas,
+                                   pre_cov, pre_cross_cov, pre_mu_n,
+                                   mu_m, K_22):
+        """This function returns the HRF estimation given information about
+        beta (i.e. beta_values, beta_indices)
+
+        Rasmussen and Williams. Varying the hyperparameters (Alg. 2.1)
+        """
+        # Updating the parameters of the kernel
+        kernel = self.hrf_kernel.clone_with_params(**dict(
+            beta_values=beta_values, beta_indices=beta_indices, etas=etas))
+
+        # Getting the new kernel evaluation
+        K, K_cross, mu_n = kernel._fit_hrf_kernel(eta_weighted_cov=pre_cov,
+            eta_weighted_cross_cov=pre_cross_cov, eta_weighted_mean=pre_mu_n)
+
+        # Adding noise to the diagonal (Ridge)
+        indx, indy = np.diag_indices_from(K)
+        if self.zeros_extremes:
+            K[indx[:-2], indy[:-2]] += self.sigma_noise ** 2
+        else:
+            K[indx, indy] += self.sigma_noise ** 2
+
+        L = cholesky(K, lower=True)
+        alpha = cho_solve((L, True), ys - mu_n) # a.k.a. dual coef
+        mu_bar = K_cross.dot(alpha) + mu_m
+
+        if K_22 is not None:
+            L_inv = solve_triangular(L.T, np.eye(L.shape[0]))
+            K_inv = L_inv.dot(L_inv.T)
+            var_bar = np.diag(K_22) - np.einsum("ki,kj,ij->k", K_cross, K_cross,
+                                                K_inv)
+            check_negative_var = var_bar < 0.
+            if np.any(check_negative_var):
+                var_bar[check_negative_var] = 0.
+
+            return mu_bar, var_bar
+        return mu_bar
+
+    def _fit(self, ys, hrf_measurement_points, visible_events, etas,
+             beta_indices, initial_beta, unique_events, evaluation_points=None):
+        """This function performs an alternate optimization.
+        i) Finds HRF given the betas
+        ii) Finds the betas given the HRF estimation, we build a new design
+        matrix repeat until reach the number of iterations, n_iter
+        """
+        beta_values = initial_beta.copy()
+
+        kernel = self.hrf_kernel.clone_with_params(**dict(
+            beta_values=beta_values, beta_indices=beta_indices, etas=etas))
+
+        # Getting eta weighted matrices
+        pre_cov, pre_cross_cov, pre_mean_n, pre_mean_m, \
+        K_22 = kernel._eta_weighted_kernel(
+                        hrf_measurement_points, evaluation_points)
+
+        all_hrf_values = []
+        all_hrf_var = []
+        all_designs = []
+        all_betas = []
+        for i in range(self.n_iter):
+            if self.verbose:
+                print "iter: %s" % i
+
+            hrf_values, hrf_var = self._get_hrf_values_from_betas(
+                ys, beta_values, beta_indices, etas, pre_cov, pre_cross_cov,
+                pre_mean_n, pre_mean_m, K_22=K_22)
+
+            design = _get_design_from_hrf_measures(hrf_values, beta_indices)
+            # Least squares estimation
+            beta_values = np.linalg.pinv(design).dot(ys)
+
+            all_hrf_values.append(hrf_values)
+            all_hrf_var.append(hrf_var)
+            all_designs.append(design)
+            all_betas.append(beta_values)
+
+        return (beta_values, (hrf_measurement_points, hrf_values, hrf_var),
+                all_hrf_values, all_designs, all_betas)
 
     def fit(self, ys, paradigm, initial_beta=None):
 
-        zeros_extremes = True
         ys = np.atleast_1d(ys)
-
         if self.normalize_y:
             self.y_train_mean = np.mean(ys, axis=0)
             ys = ys - self.y_train_mean
         else:
             self.y_train_mean = np.zeros(1)
 
-        if zeros_extremes:
+        self.y_train = ys
+
+        if self.zeros_extremes:
             ys = np.append(ys, np.array([0., 0.]))
 
+        # Get paradigm data
         hrf_measurement_points, visible_events, etas, beta_indices, unique_events = \
             _get_hrf_measurements(paradigm, hrf_length=self.hrf_length,
                                   t_r=self.t_r, time_offset=self.time_offset,
-                                  zeros_extremes=zeros_extremes)
+                                  zeros_extremes=self.zeros_extremes)
         if initial_beta is None:
             initial_beta = np.ones(len(unique_events))
 
+        # Just to be able to use Kernels class
+        hrf_measurement_points = np.concatenate(hrf_measurement_points)
+        self.hrf_measurement_points = hrf_measurement_points[:, np.newaxis]
+        etas = np.concatenate(etas)
+
+        # Initialize the kernel
+        self.hrf_kernel = HRFKernel(kernel=self.kernel, gamma=self.gamma,
+                                    return_eval_cov=self.return_var)
 
         # Maximizing the log-likelihood (gradient based optimization)
-        if self.optimize:
+        # if self.optimize:
+            # def obj_func(theta, eval_gradient=False):
+            #     return -self.log_marginal_likelihood(self, theta)
 
-            def obj_func(theta, eval_gradient=False):
-                return -self.log_marginal_likelihood(self, theta)
-
-
-        output = get_hrf_fit(ys, hrf_measurement_points, visible_events,
-                             etas, beta_indices, initial_beta, unique_events,
-                             theta=self.theta_0, max_iter=self.fmin_max_iter,
-                             n_iter=self.n_iter,
-                             sigma_noise=self.sigma_noise_0,
-                             hrf_model='gamma', hrf_length=self.hrf_length,
-                             zeros_extremes=zeros_extremes)
+        output = self._fit(ys,
+                           hrf_measurement_points=self.hrf_measurement_points,
+                           visible_events=visible_events, etas=etas,
+                           beta_indices=beta_indices, initial_beta=initial_beta,
+                           unique_events=unique_events)
 
         hrf_measurement_points = np.concatenate(output[1][0])
         order = np.argsort(hrf_measurement_points)
@@ -366,20 +295,17 @@ class SuperDuperGP(BaseEstimator, RegressorMixin):
         hrf_var = output[1][2][order]
         hx, hy = hrf_measurement_points[order], output[1][1][order]
 
-        # self.params_ = output[-1]
-        self.hrf_measurement_points_ = hrf_measurement_points
-
         return hx, hy, hrf_var
 
 
     def predict(self, paradigm):
         """
         """
-        check_is_fitted(self, "params_")
-        hrf_measurement_points, visible_events, etas, beta_indices, unique_events = \
-            _get_hrf_measurements(paradigm, hrf_length=self.hrf_length,
-                                  t_r=self.t_r, time_offset=self.time_offset)
+        pass
 
+    def transform(self, paradimg):
+        """
+        """
         pass
 
     def scorer(self, paradigm, ys):
@@ -387,9 +313,11 @@ class SuperDuperGP(BaseEstimator, RegressorMixin):
         """
         pass
 
-    def log_marginal_likelihood(self, ys, kernel, sigma_noise=0.001, theta=None,
+    def log_marginal_likelihood(self, sigma_noise=0.001, theta=None,
                                 eval_gradient=None):
         """This functions return the marginal log-likelihood
+
+        Rasmussen and Williams, model selection(E.q. 5.8)
 
         Parameters
         ----------
@@ -405,37 +333,28 @@ class SuperDuperGP(BaseEstimator, RegressorMixin):
         see Rasmussen and Williams book, model selection in regression. Eq. 5.8
 
         """
-        # evaluate the kernel on the training data
-        # XXX This is not working, we need to change the parameters of the kernel
-        # Please wait a minute
-        K = kernel
+        y_train = self.y_train
+        y_train = y_train[:, np.newaxis]
 
+        # XXX may be the kernel should be an input
+        K, K_cross, _ = self.hrf_kernel(self.hrf_measurement_points)
         # Adding noise to the diagonal (Ridge)
         K[np.diag_indices_from(K)] += sigma_noise ** 2
-
         try:
-            L = cholesky(kernel, lower=True)
+            L = cholesky(K, lower=True)
             alpha = cho_solve((L, True), ys) # a.k.a. dual coef
+            alpha = alpha[:, np.newaxis]
 
         except LinAlgError:
             loglikelihood = -np.inf
             return loglikelihood
 
-        loglikelihood_dims = -0.5 * np.einsum("ik, jk->k", ys[:, np.newaxis],
-                                              alpha)
+        loglikelihood_dims = -0.5 * np.einsum("ik,jk->k", y_train, alpha)
         loglikelihood_dims -= np.log(np.diag(L)).sum()
         # normalization constant
         loglikelihood_dims -= K.shape[0] / 2 * np.log(2 * np.pi)
         # sum over all dim (sklearn)
         loglikelihood = loglikelihood_dims.sum(-1)
-
-        # if eval_gradient:
-        #     tmp = np.einsum("ik, jk->ijk", alpha, alpha)
-        #     tmp -= cho_solve((L, True), np.eye(K.shape[0]))[:, :, np.newaxis]
-
-        #     loglikelihood_gradient_dims = \
-        #         0.5 * np.einsum("ijl, ijk->kl", tmp, K_gradient)
-        #     loglikelihood_gradient = loglikelihood_gradient_dims.sum(-1)
 
         return loglikelihood
 
@@ -456,7 +375,7 @@ if __name__ == '__main__':
     t_r = 2
     jitter_min, jitter_max = -1, 1
     event_types = ['evt_1', 'evt_2', 'evt_3', 'evt_4', 'evt_5', 'evt_6']
-    sigma_noise = .01
+    sigma_noise = .1
 
     paradigm, design, modulation, measurement_time = \
         generate_spikes_time_series(n_events=n_events,
@@ -469,17 +388,19 @@ if __name__ == '__main__':
     ###########################################################################
     # GP parameters
     hrf_length = 24
-    theta_0 = [10., 1.]
-    sigma_noise_0 = sigma_noise
+    # theta = [10., 1.]
     time_offset = 10
+    gamma = 1.
     fmin_max_iter = 20
     n_iter = 10
-    normalize_y = True
+    normalize_y = False
+    zeros_extremes = True
 
     gp = SuperDuperGP(hrf_length=hrf_length, modulation=modulation,
-                      theta_0=theta_0, fmin_max_iter=fmin_max_iter,
-                      sigma_noise_0=sigma_noise_0, time_offset=time_offset,
-                      n_iter=n_iter, normalize_y=normalize_y)
+                      gamma=gamma, fmin_max_iter=fmin_max_iter,
+                      sigma_noise=sigma_noise, time_offset=time_offset,
+                      n_iter=n_iter, normalize_y=normalize_y, verbose=True,
+                      zeros_extremes=zeros_extremes)
 
     design = design[event_types].values  # forget about drifts for the moment
     beta = rng.randn(len(event_types))
@@ -488,11 +409,12 @@ if __name__ == '__main__':
 
     hx, hy, hrf_var = gp.fit(ys, paradigm)
 
+
+    # gp.predict(paradigm)
+
     plt.fill_between(hx, hy - 1.96 * np.sqrt(hrf_var),
                      hy + 1.96 * np.sqrt(hrf_var), alpha=0.1)
     plt.plot(hx, hy)
-    #hrf_0 = _get_hrf_model('gamma', hrf_length=hrf_length, dt=0.01)
-    #plt.plot(xrange(0, hrf_length, dt), hrf_0, 'r--')
     plt.show()
 
     # ###########################################################################
@@ -517,10 +439,5 @@ if __name__ == '__main__':
 
 
 
-# you have to tell the function value to be a certain value
-# the gaussian process will have the value 10 at t
-# if the noise value is 0
 
-# You add the measurement points as a measure
-# You put 0 at the 2 points that you add in the Identity noise
 
