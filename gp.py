@@ -340,7 +340,12 @@ class SuperDuperGP(BaseEstimator, RegressorMixin):
         # XXX may be the kernel should be an input
         K, K_cross, _ = self.hrf_kernel(self.hrf_measurement_points)
         # Adding noise to the diagonal (Ridge)
-        K[np.diag_indices_from(K)] += sigma_noise ** 2
+        indx, indy = np.diag_indices_from(K)
+        if self.zeros_extremes:
+            K[indx[:-2], indy[:-2]] += sigma_noise ** 2
+        else:
+            K[indx, indy] += sigma_noise ** 2
+
         try:
             L = cholesky(K, lower=True)
             alpha = cho_solve((L, True), ys) # a.k.a. dual coef
