@@ -137,6 +137,8 @@ def _get_hrf_model(hrf_model=None, hrf_length=25., dt=1., normalize=False):
         # Mean 0 if no hrf_model is specified
         hrf_0 = np.zeros(hrf_length/dt)
         warnings.warn("The HRF model is not recognized, setting it to None")
+    if normalize and hrf_model is not None:
+        hrf_0 = hrf_0 / np.linalg.norm(hrf_0)
     return hrf_0
 
 
