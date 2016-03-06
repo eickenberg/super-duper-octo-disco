@@ -357,7 +357,8 @@ class SuperDuperGP(BaseEstimator, RegressorMixin):
 
         """
         kernel = self.hrf_kernel.clone_with_theta(theta)
-        K, K_cross, _ = kernel(self.hrf_measurement_points)
+        K, K_cross, mu_n, mu_m, _ = kernel(self.hrf_measurement_points)
+
         # Adding noise to the diagonal (Ridge)
         indx, indy = np.diag_indices_from(K)
         if self.zeros_extremes:
@@ -376,8 +377,8 @@ class SuperDuperGP(BaseEstimator, RegressorMixin):
         alpha = cho_solve((L, True), ys) # a.k.a. dual coef
 
         # alpha = alpha[:, np.newaxis]
-        # loglikelihood_dims = -0.5 * np.einsum("ik,jk->k", y_train, alpha)
-        loglikelihood_dims = -0.5 * y_train.T.dot(alpha) # data fit
+        loglikelihood_dims = -0.5 * np.einsum("ik,jk->k", y_train, alpha)
+        # loglikelihood_dims = -0.5 * y_train.T.dot(alpha) # data fit
         # model compkexity
         loglikelihood_dims -= np.log(np.diag(L)).sum()
         # normalization constant
@@ -433,7 +434,7 @@ if __name__ == '__main__':
     n_restarts_optimizer = 5
     n_iter = 10
     normalize_y = False
-    optimize = False
+    optimize = True
     sigma_noise = 0.01
     zeros_extremes = True
 

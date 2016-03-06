@@ -129,8 +129,8 @@ class HRFKernel(StationaryKernelMixin, Kernel):
                 self._eta_weighted_kernel(hrf_measurement_points,
                                           evaluation_points)
             K, K_cross, mu_n = self._fit_hrf_kernel(eta_weighted_cov,
-                                              eta_weighted_cross_cov,
-                                              eta_weighted_mean_n)
+                                                    eta_weighted_cross_cov,
+                                                    eta_weighted_mean_n)
             return K, K_cross, mu_n, mu_m
 
     def clone_with_params(self, **params):
