@@ -148,9 +148,9 @@ class SuperDuperGP(BaseEstimator, RegressorMixin):
     """
     def __init__(self, hrf_length=32., t_r=2, time_offset=10, kernel=None,
                  modulation=None, sigma_noise=0.001, gamma=1.,
-                 fmin_max_iter=10, n_iter=10, hrf_model=None,
+                 fmin_max_iter=10, n_iter=10,
                  normalize_y=False, optimize=False, return_var=True,
-                 zeros_extremes=False, verbose=True):
+                 zeros_extremes=False, f_mean=None, verbose=True):
         self.t_r = t_r
         self.hrf_length = hrf_length
         self.modulation = modulation
@@ -159,7 +159,7 @@ class SuperDuperGP(BaseEstimator, RegressorMixin):
         self.gamma = gamma
         self.fmin_max_iter = fmin_max_iter
         self.n_iter = n_iter
-        self.hrf_model = hrf_model
+        self.f_mean = f_mean
         self.normalize_y = normalize_y
         self.optimize = optimize
         self.kernel = kernel
@@ -207,7 +207,8 @@ class SuperDuperGP(BaseEstimator, RegressorMixin):
         return mu_bar
 
     def _fit(self, ys, hrf_measurement_points, visible_events, etas,
-             beta_indices, initial_beta, unique_events, evaluation_points=None):
+             beta_indices, initial_beta, unique_events, f_mean=None,
+             evaluation_points=None):
         """This function performs an alternate optimization.
         i) Finds HRF given the betas
         ii) Finds the betas given the HRF estimation, we build a new design
@@ -221,7 +222,7 @@ class SuperDuperGP(BaseEstimator, RegressorMixin):
         # Getting eta weighted matrices
         pre_cov, pre_cross_cov, pre_mean_n, pre_mean_m, \
         K_22 = kernel._eta_weighted_kernel(
-                        hrf_measurement_points, evaluation_points)
+                    hrf_measurement_points, f_mean, evaluation_points)
 
         all_hrf_values = []
         all_hrf_var = []
@@ -287,7 +288,7 @@ class SuperDuperGP(BaseEstimator, RegressorMixin):
                            hrf_measurement_points=self.hrf_measurement_points,
                            visible_events=visible_events, etas=etas,
                            beta_indices=beta_indices, initial_beta=initial_beta,
-                           unique_events=unique_events)
+                           unique_events=unique_events, f_mean=self.f_mean)
 
         hrf_measurement_points = np.concatenate(output[1][0])
         order = np.argsort(hrf_measurement_points)
@@ -396,11 +397,19 @@ if __name__ == '__main__':
     normalize_y = False
     zeros_extremes = True
 
+    # Mean function of GP set to a certain HRF model
+    hrf_model = 'glover'
+    dt = 0.1
+    x_0 = np.arange(0, hrf_length + dt, dt)
+    hrf_0 = _get_hrf_model(hrf_model, hrf_length=hrf_length + dt,
+                           dt=dt, normalize=True)
+    f_hrf = interp1d(x_0, hrf_0)
+
     gp = SuperDuperGP(hrf_length=hrf_length, modulation=modulation,
                       gamma=gamma, fmin_max_iter=fmin_max_iter,
                       sigma_noise=sigma_noise, time_offset=time_offset,
                       n_iter=n_iter, normalize_y=normalize_y, verbose=True,
-                      zeros_extremes=zeros_extremes)
+                      zeros_extremes=zeros_extremes, f_mean=f_hrf)
 
     design = design[event_types].values  # forget about drifts for the moment
     beta = rng.randn(len(event_types))

@@ -12,46 +12,6 @@ from sklearn.gaussian_process.kernels import ConstantKernel, Hyperparameter
 from scipy.interpolate import interp1d
 
 
-# XXX this function should generate the HRF with a fixed number of samples
-# for instance, if we hace ys.shape[0] = 2000, then the size of the HRF should
-# be the same, giving us the possibility to evaluate it on every single point.
-def _get_hrf_model(hrf_model=None, hrf_length=25., dt=1., normalize=False):
-    """Returns HRF created with model hrf_model. If hrf_model is None,
-    then a vector of 0 is returned
-
-    Parameters
-    ----------
-    hrf_model: str
-    hrf_length: float
-    dt: float
-    normalize: bool
-
-    Returns
-    -------
-    hrf_0: hrf
-    """
-    if hrf_model == 'glover':
-        hrf_0 = glover_hrf(tr=1., oversampling=1./dt, time_length=hrf_length)
-    elif hrf_model == 'spm':
-        hrf_0 = spm_hrf(tr=1., oversampling=1./dt, time_length=hrf_length)
-    elif hrf_model == 'gamma':
-        hrf_0 = _gamma_difference_hrf(1., oversampling=1./dt, time_length=hrf_length,
-                                      onset=0., delay=6, undershoot=16., dispersion=1.,
-                                      u_dispersion=1., ratio=0.167)
-    elif hrf_model == 'bezier':
-        # Bezier curves. We can indicate where is the undershoot and the peak etc
-        hrf_0 = bezier_hrf(hrf_length=hrf_length, dt=dt, pic=[6,1], picw=2,
-                           ushoot=[15,-0.2], ushootw=3, normalize=normalize)
-    elif hrf_model == 'physio':
-        # Balloon model. By default uses the parameters of Khalidov11
-        hrf_0 = physio_hrf(hrf_length=hrf_length, dt=dt, normalize=normalize)
-    else:
-        # Mean 0 if no hrf_model is specified
-        hrf_0 = np.zeros(hrf_length/dt)
-        import warnings
-        warnings.warn("The HRF model is not recognized, setting it to None")
-    return hrf_0
-
 ###############################################################################
 # Kernel utils
 ###############################################################################
@@ -78,7 +38,7 @@ class HRFKernel(StationaryKernelMixin, Kernel):
         self.hyperparameter_gamma = Hyperparameter("gamma", "numeric",
                                                    gamma_bounds)
 
-    def _eta_weighted_kernel(self, hrf_measurement_points,
+    def _eta_weighted_kernel(self, hrf_measurement_points, f_mean=None,
                              evaluation_points=None):
         """This function computes the kernel matrix of all measurement points,
         potentially redundantly per measurement points, just to be sure we
@@ -115,15 +75,11 @@ class HRFKernel(StationaryKernelMixin, Kernel):
         eta_weighted_cov = K * eta_weight
         eta_weighted_cross_cov = K_cross * etas
 
-        dt = 0.01
-        hrf_length = 24.
-        hrf_model = None
-        x_0 = np.arange(0, hrf_length + dt, dt)
-        hrf_0 = _get_hrf_model(hrf_model, hrf_length=hrf_length + dt,
-                               dt=dt, normalize=False)
-        f = interp1d(x_0, hrf_0)
-        pre_mean_n = f(hrf_measurement_points).squeeze() * etas
-        pre_mean_m = f(hrf_measurement_points).squeeze() * etas
+        if f_mean is not None:
+            pre_mean_n = f_mean(hrf_measurement_points).squeeze() * etas
+            pre_mean_m = f_mean(hrf_measurement_points).squeeze() * etas
+        else:
+            pre_mean_n, pre_mean_m = np.zeros_like(etas), np.zeros_like(etas)
 
         if self.return_eval_cov:
             K_22 = self.kernel_(evaluation_points)
