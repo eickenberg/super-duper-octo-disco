@@ -119,7 +119,7 @@ class HRFKernel(StationaryKernelMixin, Kernel):
         hrf_length = 24.
         hrf_model = None
         x_0 = np.arange(0, hrf_length + dt, dt)
-        hrf_0 = _get_hrf_model(self.hrf_model, hrf_length=hrf_length + dt,
+        hrf_0 = _get_hrf_model(hrf_model, hrf_length=hrf_length + dt,
                                dt=dt, normalize=False)
         f = interp1d(x_0, hrf_0)
         pre_mean_n = f(hrf_measurement_points).squeeze() * etas
