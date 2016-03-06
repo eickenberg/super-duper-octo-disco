@@ -9,6 +9,7 @@ from scipy.sparse import coo_matrix
 from sklearn.gaussian_process.kernels import (Kernel, RBF,
                                               StationaryKernelMixin)
 from sklearn.gaussian_process.kernels import ConstantKernel, Hyperparameter
+from scipy.interpolate import interp1d
 
 
 ###############################################################################
@@ -37,7 +38,7 @@ class HRFKernel(StationaryKernelMixin, Kernel):
         self.hyperparameter_gamma = Hyperparameter("gamma", "numeric",
                                                    gamma_bounds)
 
-    def _eta_weighted_kernel(self, hrf_measurement_points,
+    def _eta_weighted_kernel(self, hrf_measurement_points, f_mean=None,
                              evaluation_points=None):
         """This function computes the kernel matrix of all measurement points,
         potentially redundantly per measurement points, just to be sure we
@@ -74,12 +75,19 @@ class HRFKernel(StationaryKernelMixin, Kernel):
         eta_weighted_cov = K * eta_weight
         eta_weighted_cross_cov = K_cross * etas
 
+        if f_mean is not None:
+            pre_mean_n = f_mean(hrf_measurement_points).squeeze() * etas
+            pre_mean_m = f_mean(hrf_measurement_points).squeeze() * etas
+        else:
+            pre_mean_n, pre_mean_m = np.zeros_like(etas), np.zeros_like(etas)
+
         if self.return_eval_cov:
             K_22 = self.kernel_(evaluation_points)
-            return eta_weighted_cov, eta_weighted_cross_cov, K_22
-        return eta_weighted_cov, eta_weighted_cross_cov
+            return eta_weighted_cov, eta_weighted_cross_cov, pre_mean_n, pre_mean_m, K_22
+        return eta_weighted_cov, eta_weighted_cross_cov, pre_mean_n, pre_mean_m
 
-    def _fit_hrf_kernel(self, eta_weighted_cov, eta_weighted_cross_cov):
+    def _fit_hrf_kernel(self, eta_weighted_cov, eta_weighted_cross_cov,
+                        eta_weighted_mean):
         """
         """
         beta_values = self.beta_values.copy()
@@ -96,8 +104,9 @@ class HRFKernel(StationaryKernelMixin, Kernel):
 
         K = collapser.T.dot(collapser.T.dot(eta_weighted_cov).T).T
         K_cross = collapser.T.dot(eta_weighted_cross_cov.T).T  # again
+        mu_n = collapser.T.dot(eta_weighted_mean).T
 
-        return K, K_cross
+        return K, K_cross, mu_n
 
     def __call__(self, hrf_measurement_points, evaluation_points=None):
         """
@@ -106,19 +115,23 @@ class HRFKernel(StationaryKernelMixin, Kernel):
             evaluation_points = hrf_measurement_points
 
         if self.return_eval_cov:
-            eta_weighted_cov, eta_weighted_cross_cov, K_22 = \
+            eta_weighted_cov, eta_weighted_cross_cov, \
+            eta_weighted_mean_n, mu_m, K_22 = \
                 self._eta_weighted_kernel(hrf_measurement_points,
                                           evaluation_points)
-            K, K_cross = self._fit_hrf_kernel(eta_weighted_cov,
-                                              eta_weighted_cross_cov)
-            return K, K_cross, K_22
+            K, K_cross, mu_n = self._fit_hrf_kernel(eta_weighted_cov,
+                                              eta_weighted_cross_cov,
+                                              eta_weighted_mean_n)
+            return K, K_cross, mu_n, mu_m, K_22
         else:
-            eta_weighted_cov, eta_weighted_cross_cov = \
+            eta_weighted_cov, eta_weighted_cross_cov, \
+            eta_weighted_mean_n, mu_m = \
                 self._eta_weighted_kernel(hrf_measurement_points,
                                           evaluation_points)
-            K, K_cross = self._fit_hrf_kernel(eta_weighted_cov,
-                                              eta_weighted_cross_cov)
-            return K, K_cross
+            K, K_cross, mu_n = self._fit_hrf_kernel(eta_weighted_cov,
+                                              eta_weighted_cross_cov,
+                                              eta_weighted_mean_n)
+            return K, K_cross, mu_n, mu_m
 
     def clone_with_params(self, **params):
         cloned = clone(self)
