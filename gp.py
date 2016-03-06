@@ -422,12 +422,21 @@ if __name__ == '__main__':
     event_types = ['evt_1', 'evt_2', 'evt_3', 'evt_4', 'evt_5', 'evt_6']
     sigma_noise = .01
 
+    hrf_model = 'glover'
+    hrf_length = 32
+    dt = 0.1
+    x_0 = np.arange(0, hrf_length + dt, dt)
+    hrf_0 = _get_hrf_model(hrf_model, hrf_length=hrf_length + dt,
+                           dt=dt, normalize=True)
+    f_hrf = interp1d(x_0, hrf_0)
+
     paradigm, design, modulation, measurement_time = \
         generate_spikes_time_series(n_events=n_events,
                                     n_blank_events=n_blank_events,
                                     event_spacing=event_spacing, t_r=t_r,
                                     return_jitter=True, jitter_min=jitter_min,
                                     jitter_max=jitter_max,
+                                    f_hrf=f_hrf, hrf_length=hrf_length,
                                     event_types=event_types, period_cut=64,
                                     time_offset=10, modulation=None, seed=seed)
     ###########################################################################

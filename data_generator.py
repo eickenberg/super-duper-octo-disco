@@ -113,6 +113,7 @@ def make_design_matrix_hrf(
     if paradigm is not None:
         # create the condition-related regressors
         names, _, _, _ = check_paradigm(paradigm)
+        print names
         hrf_measurement_points, _, _, beta_indices, _ = \
                     _get_hrf_measurements(paradigm, hrf_length=hrf_length,
                               t_r=t_r, time_offset=time_offset)
@@ -210,7 +211,6 @@ def generate_spikes_time_series(n_events=200, n_blank_events=50,
 
     paradigm = pd.DataFrame.from_dict(dict(onset=onsets, name=names))
 
-    f_hrf = None
     if f_hrf is None:
         design = make_design_matrix(measurement_times, paradigm=paradigm,
                                     period_cut=period_cut)
