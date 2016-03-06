@@ -77,7 +77,7 @@ class HRFKernel(StationaryKernelMixin, Kernel):
 
         if f_mean is not None:
             pre_mean_n = f_mean(hrf_measurement_points).squeeze() * etas
-            pre_mean_m = f_mean(hrf_measurement_points).squeeze() * etas
+            pre_mean_m = f_mean(evaluation_points).squeeze() * etas
         else:
             pre_mean_n, pre_mean_m = np.zeros_like(etas), np.zeros_like(etas)
 
