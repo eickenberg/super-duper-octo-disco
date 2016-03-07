@@ -40,9 +40,9 @@ zeros_extremes = True
 
 
 
-for sigma_noise in np.array([0.1, 0.001, 0.00001, 0.0000001]):
+for sigma_noise in np.array([0.1, 0.001, 0.00001]):
 
-    plt.figure(figsize=(12, 12))
+    plt.figure(figsize=(12, 8))
     i = 0
 
     for hrf_peak in xrange(3, 9):
