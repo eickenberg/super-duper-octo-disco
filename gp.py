@@ -98,9 +98,6 @@ def _get_hrf_measurements(paradigm, hrf_length=32., t_r=2, time_offset=10,
             unique_events)
 
 
-# XXX this function should generate the HRF with a fixed number of samples
-# for instance, if we hace ys.shape[0] = 2000, then the size of the HRF should
-# be the same, giving us the possibility to evaluate it on every single point.
 def _get_hrf_model(hrf_model=None, hrf_length=25., dt=1., normalize=False):
     """Returns HRF created with model hrf_model. If hrf_model is None,
     then a vector of 0 is returned
@@ -193,9 +190,24 @@ class SuperDuperGP(BaseEstimator, RegressorMixin):
         else:
             K[indx, indy] += self.sigma_noise ** 2
 
-        L = cholesky(K, lower=True)
-        alpha = cho_solve((L, True), ys - mu_n)
+        try:
+            L = cholesky(K, lower=True)
+        except LinAlgError:
+            loglikelihood = np.inf
+            if K_22 is not None:
+                return -loglikelihood, None, None
+            else:
+                return -loglikelihood, None
+
+        fs = ys - mu_n
+        alpha = cho_solve((L, True), fs)
         mu_bar = K_cross.dot(alpha) + mu_m
+
+        data_fit = -0.5 * fs.T.dot(alpha)
+        model_complexity = -np.log(np.diag(L)).sum()
+        normal_const = -K.shape[0] / 2 * np.log(2 * np.pi)
+        loglikelihood_dims = data_fit + model_complexity + normal_const
+        loglikelihood = loglikelihood_dims.sum(-1)
 
         if K_22 is not None:
             L_inv = solve_triangular(L.T, np.eye(L.shape[0]))
@@ -206,26 +218,32 @@ class SuperDuperGP(BaseEstimator, RegressorMixin):
             if np.any(check_negative_var):
                 var_bar[check_negative_var] = 0.
 
-            return mu_bar, var_bar
-        return mu_bar
+            return loglikelihood, mu_bar, var_bar
+        return loglikelihood, mu_bar
 
-    def _fit(self, ys, hrf_measurement_points, visible_events, etas,
-             beta_indices, initial_beta, unique_events, f_mean=None,
-             evaluation_points=None):
+    def _fit(self, theta):
+                 # ys, hrf_measurement_points, visible_events, etas,
+                 # beta_indices, initial_beta, unique_events,
+                 # evaluation_points=None, f_mean=None
         """This function performs an alternate optimization.
         i) Finds HRF given the betas
         ii) Finds the betas given the HRF estimation, we build a new design
         matrix repeat until reach the number of iterations, n_iter
         """
-        beta_values = initial_beta.copy()
+        beta_values = self.initial_beta_.copy()
 
         kernel = self.hrf_kernel.clone_with_params(**dict(
-            beta_values=beta_values, beta_indices=beta_indices, etas=etas))
+            beta_values=beta_values, beta_indices=self.beta_indices_,
+            etas=self.etas_))
+
+        kernel = self.hrf_kernel.clone_with_theta(theta)
+        print kernel.theta
 
         # Getting eta weighted matrices
-        pre_cov, pre_cross_cov, pre_mean_n, pre_mean_m, \
-        K_22 = kernel._eta_weighted_kernel(
-                    hrf_measurement_points, evaluation_points, f_mean)
+        pre_cov, pre_cross_cov, pre_mean_n, pre_mean_m, K_22 = \
+            kernel._eta_weighted_kernel(
+                self.hrf_measurement_points,
+                evaluation_points=self.evaluation_points, f_mean=self.f_mean)
 
         all_hrf_values = []
         all_hrf_var = []
@@ -235,21 +253,26 @@ class SuperDuperGP(BaseEstimator, RegressorMixin):
             if self.verbose:
                 print "iter: %s" % i
 
-            hrf_values, hrf_var = self._get_hrf_values_from_betas(
-                ys, beta_values, beta_indices, etas, pre_cov, pre_cross_cov,
-                pre_mean_n, pre_mean_m, K_22=K_22)
+            loglikelihood, hrf_values, hrf_var = \
+                self._get_hrf_values_from_betas(
+                    self.y_train, beta_values, self.beta_indices_, self.etas_,
+                    pre_cov, pre_cross_cov, pre_mean_n, pre_mean_m, K_22=K_22)
 
-            design = _get_design_from_hrf_measures(hrf_values, beta_indices)
+            design = _get_design_from_hrf_measures(hrf_values,
+                                                   self.beta_indices_)
             # Least squares estimation
-            beta_values = np.linalg.pinv(design).dot(ys)
+            beta_values = np.linalg.pinv(design).dot(self.y_train)
 
             all_hrf_values.append(hrf_values)
             all_hrf_var.append(hrf_var)
             all_designs.append(design)
             all_betas.append(beta_values)
 
-        return (beta_values, (hrf_measurement_points, hrf_values, hrf_var),
-                all_hrf_values, all_designs, all_betas)
+        print -loglikelihood
+
+        return loglikelihood, (beta_values,
+                               (self.hrf_measurement_points, hrf_values, hrf_var),
+                               all_hrf_values, all_designs, all_betas)
 
     def fit(self, ys, paradigm, initial_beta=None):
 
@@ -262,10 +285,10 @@ class SuperDuperGP(BaseEstimator, RegressorMixin):
         else:
             self.y_train_mean = np.zeros(1)
 
-        self.y_train = ys
-
         if self.zeros_extremes:
             ys = np.append(ys, np.array([0., 0.]))
+
+        self.y_train = ys
 
         # Get paradigm data
         hrf_measurement_points, visible_events, etas, beta_indices, unique_events = \
@@ -278,42 +301,61 @@ class SuperDuperGP(BaseEstimator, RegressorMixin):
         # Just to be able to use Kernels class
         hrf_measurement_points = np.concatenate(hrf_measurement_points)
         self.hrf_measurement_points = hrf_measurement_points[:, np.newaxis]
+        self.evaluation_points = None
         etas = np.concatenate(etas)
 
         # Initialize the kernel
         self.hrf_kernel = HRFKernel(kernel=self.kernel, gamma=self.gamma,
                                     return_eval_cov=self.return_var)
+        self.hrf_kernel.set_params(**dict(
+            beta_values=initial_beta, beta_indices=beta_indices, etas=etas))
+
+
+        self.visible_events_ = visible_events
+        self.unique_events_ = unique_events
+        self.etas_ = etas
+        self.beta_indices_ = beta_indices
+        self.initial_beta_ = initial_beta
 
         # Maximizing the log-likelihood (gradient based optimization)
+        self.f_mean_ = self.f_mean
+        self.f_mean = None
         if self.optimize:
-            self.hrf_kernel.set_params(**dict(
-                beta_values=initial_beta, beta_indices=beta_indices, etas=etas))
+            # self._fit(self.hrf_kernel.theta)
 
             def obj_func(theta):
-                return -self.log_marginal_likelihood(theta)
+                return -self._fit(theta)[0]
 
             optima = [(self._constrained_optimization(
                 obj_func, self.hrf_kernel.theta, self.hrf_kernel.bounds))]
 
-            # Additional runs are performed from log-uniform chosen initial
-            # theta
-            if self.n_restarts_optimizer > 0:
-                bounds = self.hrf_kernel.bounds
-                for i in range(self.n_restarts_optimizer):
-                    theta_initial = rng.uniform(bounds[:, 0], bounds[:, 1])
-                    optima.append(self._constrained_optimization(
-                        obj_func, theta_initial, bounds))
-            # Select the best result
-            lm_values = list(map(itemgetter(1), optima))
-            self.theta_ = optima[np.argmin(lm_values)][0]
-            self.hrf_kernel.theta = self.theta_
-            self.log_marginal_likelihood_value_ = -np.min(lm_values)
+        #     # Additional runs are performed from log-uniform chosen initial
+        #     # theta
+        #     if self.n_restarts_optimizer > 0:
+        #         bounds = self.hrf_kernel.bounds
+        #         for i in range(self.n_restarts_optimizer):
+        #             theta_initial = rng.uniform(bounds[:, 0], bounds[:, 1])
+        #             optima.append(self._constrained_optimization(
+        #                 obj_func, theta_initial, bounds))
+        #     # Select the best result
+        #     lm_values = list(map(itemgetter(1), optima))
+        #     self.theta_ = optima[np.argmin(lm_values)][0]
+        #     self.hrf_kernel.theta = self.theta_
+        #     self.log_marginal_likelihood_value_ = -np.min(lm_values)
 
-        output = self._fit(ys,
-                           hrf_measurement_points=self.hrf_measurement_points,
-                           visible_events=visible_events, etas=etas,
-                           beta_indices=beta_indices, initial_beta=initial_beta,
-                           unique_events=unique_events, f_mean=self.f_mean)
+
+
+        # XXX now we can call this
+        # output = self._fit(ys,
+        #                    hrf_measurement_points=self.hrf_measurement_points,
+        #                    visible_events=visible_events, etas=etas,
+        #                    beta_indices=beta_indices, initial_beta=initial_beta,
+        #                    unique_events=unique_events, f_mean=self.f_mean)
+
+
+
+        self.f_mean = self.f_mean_
+        loglikelihood, output = self._fit(optima[0][0])
 
         hrf_measurement_points = np.concatenate(output[1][0])
         order = np.argsort(hrf_measurement_points)
@@ -339,60 +381,60 @@ class SuperDuperGP(BaseEstimator, RegressorMixin):
         """
         pass
 
-    def log_marginal_likelihood(self, theta):
-    # , eval_gradient=None):
-        """This functions return the marginal log-likelihood
+    # def log_marginal_likelihood(self, theta):
+    # # , eval_gradient=None):
+    #     """This functions return the marginal log-likelihood
 
-        Rasmussen and Williams, model selection(E.q. 5.8)
+    #     Rasmussen and Williams, model selection(E.q. 5.8)
 
-        Parameters
-        ----------
-        ys : array-like
-        kernel: kernel function
-        sigma_noise: float
-        theta: list of kernel's parameters
+    #     Parameters
+    #     ----------
+    #     ys : array-like
+    #     kernel: kernel function
+    #     sigma_noise: float
+    #     theta: list of kernel's parameters
 
-        Returns
-        -------
-        loglikelihood: float
+    #     Returns
+    #     -------
+    #     loglikelihood: float
 
-        see Rasmussen and Williams book, model selection in regression. Eq. 5.8
+    #     see Rasmussen and Williams book, model selection in regression. Eq. 5.8
 
-        """
-        kernel = self.hrf_kernel.clone_with_theta(theta)
-        K, K_cross, mu_n, mu_m, _ = kernel(self.hrf_measurement_points)
+    #     """
+    #     kernel = self.hrf_kernel.clone_with_theta(theta)
+    #     K, K_cross, mu_n, mu_m, _ = kernel(self.hrf_measurement_points)
 
-        # Adding noise to the diagonal (Ridge)
-        indx, indy = np.diag_indices_from(K)
-        if self.zeros_extremes:
-            K[indx[:-2], indy[:-2]] += sigma_noise ** 2
-        else:
-            K[indx, indy] += sigma_noise ** 2
+    #     # Adding noise to the diagonal (Ridge)
+    #     indx, indy = np.diag_indices_from(K)
+    #     if self.zeros_extremes:
+    #         K[indx[:-2], indy[:-2]] += sigma_noise ** 2
+    #     else:
+    #         K[indx, indy] += sigma_noise ** 2
 
-        try:
-            L = cholesky(K, lower=True)
+    #     try:
+    #         L = cholesky(K, lower=True)
 
-        except LinAlgError:
-            return -np.inf
+    #     except LinAlgError:
+    #         return -np.inf
 
-        y_train = self.y_train
-        # XXX this shold not be here, waiting to refator it
-        if self.zeros_extremes:
-            y_train = np.append(y_train, np.array([0., 0.]))
+    #     y_train = self.y_train
+    #     # XXX this shold not be here, waiting to refator it
+    #     if self.zeros_extremes:
+    #         y_train = np.append(y_train, np.array([0., 0.]))
 
-        fs = y_train - mu_n
-        y_train = fs[:, np.newaxis]
-        alpha = cho_solve((L, True), fs)
+    #     fs = y_train - mu_n
+    #     y_train = fs[:, np.newaxis]
+    #     alpha = cho_solve((L, True), fs)
 
-        data_fit = 0.5 * fs.T.dot(alpha)
-        model_complexity = np.log(np.diag(L)).sum()
-        normal_const = K.shape[0] / 2 * np.log(2 * np.pi)
-        loglikelihood_dims = -data_fit - model_complexity - normal_const
-        # sum over all dim (sklearn)
-        loglikelihood = loglikelihood_dims.sum(-1)
+    #     data_fit = -0.5 * fs.T.dot(alpha)
+    #     model_complexity = -np.log(np.diag(L)).sum()
+    #     normal_const =  -K.shape[0] / 2 * np.log(2 * np.pi)
+    #     loglikelihood_dims = data_fit + model_complexity + normal_const
+    #     # sum over all dim (sklearn)
+    #     loglikelihood = loglikelihood_dims.sum(-1)
 
-        print kernel.theta[0], model_complexity, loglikelihood
-        return loglikelihood
+    #     print kernel.theta[0], model_complexity, loglikelihood
+    #     return loglikelihood
 
     def _constrained_optimization(self, obj_func, initial_theta, bounds):
         theta_opt, func_min, convergence_dict = fmin_l_bfgs_b(
@@ -443,13 +485,13 @@ if __name__ == '__main__':
     # GP parameters
     hrf_length = 32
     time_offset = 10
-    gamma = 10.0
+    gamma = 20.0
     fmin_max_iter = 20
     n_restarts_optimizer = 0
-    n_iter = 10
-    normalize_y = True
+    n_iter = 5
+    normalize_y = False
     optimize = True
-    sigma_noise = 0.05
+    sigma_noise = 0.2
     zeros_extremes = True
 
     # Mean function of GP set to a certain HRF model
@@ -459,7 +501,7 @@ if __name__ == '__main__':
     hrf_0 = _get_hrf_model(hrf_model, hrf_length=hrf_length + dt,
                            dt=dt, normalize=True)
     f_hrf = interp1d(x_0, hrf_0)
-    f_hrf = None
+    # f_hrf = None
 
     gp = SuperDuperGP(hrf_length=hrf_length, modulation=modulation,
                       gamma=gamma, fmin_max_iter=fmin_max_iter,
