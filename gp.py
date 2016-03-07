@@ -391,7 +391,7 @@ class SuperDuperGP(BaseEstimator, RegressorMixin):
         # sum over all dim (sklearn)
         loglikelihood = loglikelihood_dims.sum(-1)
 
-        print kernel.theta[0], data_fit, model_complexity, normal_const
+        print kernel.theta[0], model_complexity, loglikelihood
         return loglikelihood
 
     def _constrained_optimization(self, obj_func, initial_theta, bounds):
@@ -444,12 +444,12 @@ if __name__ == '__main__':
     hrf_length = 32
     time_offset = 10
     gamma = 10.0
-    fmin_max_iter = 10
-    n_restarts_optimizer = 0
+    fmin_max_iter = 20
+    n_restarts_optimizer = 15
     n_iter = 10
-    normalize_y = False
-    optimize = False
-    sigma_noise = 0.01
+    normalize_y = True
+    optimize = True
+    sigma_noise = 0.1
     zeros_extremes = True
 
     # Mean function of GP set to a certain HRF model
@@ -459,6 +459,7 @@ if __name__ == '__main__':
     hrf_0 = _get_hrf_model(hrf_model, hrf_length=hrf_length + dt,
                            dt=dt, normalize=True)
     f_hrf = interp1d(x_0, hrf_0)
+    f_hrf = None
 
     gp = SuperDuperGP(hrf_length=hrf_length, modulation=modulation,
                       gamma=gamma, fmin_max_iter=fmin_max_iter,
