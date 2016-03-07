@@ -118,15 +118,6 @@ def make_design_matrix_hrf(
                     _get_hrf_measurements(paradigm, hrf_length=hrf_length,
                               t_r=t_r, time_offset=time_offset)
         hrf_measurement_points = np.concatenate(hrf_measurement_points)
-
-        if f_hrf is None:
-            hrf_model = 'glover'
-            dt = 0.1
-            x_0 = np.arange(0, hrf_length + dt, dt)
-            hrf_0 = _get_hrf_model('glover', hrf_length=hrf_length + dt,
-                                    dt=dt, normalize=True)
-            f_hrf = interp1d(x_0, hrf_0)
-
         hrf_measures = f_hrf(hrf_measurement_points)
         matrix = _get_design_from_hrf_measures(hrf_measures, beta_indices)
         #matrix, names = _convolve_regressors(
@@ -163,7 +154,7 @@ def make_design_matrix_hrf(
 def generate_spikes_time_series(n_events=200, n_blank_events=50,
                                 event_spacing=6, t_r=2, hrf_length=32.,
                                 event_types=['ev1', 'ev2'], period_cut=64,
-                                jitter_min=-1, jitter_max=1,
+                                jitter_min=-1, jitter_max=1, drift_order=1,
                                 return_jitter=False, time_offset=10,
                                 modulation=None, seed=None, f_hrf=None):
     """Voxel-level activations
@@ -213,18 +204,19 @@ def generate_spikes_time_series(n_events=200, n_blank_events=50,
 
     if f_hrf is None:
         design = make_design_matrix(measurement_times, paradigm=paradigm,
-                                    period_cut=period_cut)
+                                    period_cut=period_cut, drift_order=drift_order)
     else:
         design = make_design_matrix_hrf(measurement_times, paradigm=paradigm,
-                                    period_cut=period_cut, hrf_length=hrf_length,
-                                    t_r=t_r, time_offset=time_offset)
+                                    period_cut=period_cut, drift_order=drift_order,
+                                    hrf_length=hrf_length,
+                                    t_r=t_r, time_offset=time_offset, f_hrf=f_hrf)
 
     return paradigm, design, modulation, measurement_times
 
 
 def generate_fmri(n_x, n_y, n_z, modulation=None, betas=None, n_events=200,
                   n_blank_events=50, event_spacing=6, t_r=2, hrf_length=25.,
-                  smoothing_fwhm=2, event_types=['ev1', 'ev2'],
+                  smoothing_fwhm=2, event_types=['ev1', 'ev2'], drift_order=1,
                   period_cut=64, time_offset=10, sigma_noise=0.001, sigma=None,
                   threshold=None, seed=None, f_hrf=None):
     """
@@ -269,7 +261,7 @@ def generate_fmri(n_x, n_y, n_z, modulation=None, betas=None, n_events=200,
         n_events=n_events, n_blank_events=n_blank_events,
         event_spacing=event_spacing, t_r=t_r, event_types=event_types,
         period_cut=period_cut, time_offset=time_offset, modulation=modulation,
-        seed=seed, f_hrf=f_hrf, hrf_length=hrf_length)
+        seed=seed, f_hrf=f_hrf, hrf_length=hrf_length, drift_order=drift_order)
 
     n_volumes, n_regressors = design.shape
 
@@ -286,18 +278,22 @@ def generate_fmri(n_x, n_y, n_z, modulation=None, betas=None, n_events=200,
 
     # Assign a temporal series to each image
     for i, condition in enumerate(event_types):
+        #print condition
         ind = np.where(event_types != condition)[0]
         events = event_types[ind]
         cond_design = design.copy()
+        #print 'condition design: ', cond_design
         cond_design[events] = 0
 
         fmri_timeseries[masks[condition], :] = cond_design.dot(betas)
+        #print 'timeseries condition: ', fmri_timeseries[masks[condition], :]
 
         for k, s in enumerate(sigma_smoothing):
             gaussian_filter1d(fmri_timeseries, sigma=s,
                               output=fmri_timeseries, axis=k)
-
+        #print 'timeseries after smoothing: ', fmri_timeseries
         fmri_timeseries += sigma_noise * rng.randn(n_x, n_y, n_z, n_volumes)
+        #print 'timeseries with noise: ', fmri_timeseries
 
     return fmri_timeseries, paradigm, design, masks
 
