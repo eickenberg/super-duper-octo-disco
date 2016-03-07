@@ -195,9 +195,9 @@ class SuperDuperGP(BaseEstimator, RegressorMixin):
         except LinAlgError:
             loglikelihood = np.inf
             if K_22 is not None:
-                return -loglikelihood, None, None
+                return (-loglikelihood, np.zeros(K_cross.shape[0]), None)
             else:
-                return -loglikelihood, None
+                return -loglikelihood, np.zeros(K_cross.shape[0])
 
         fs = ys - mu_n
         alpha = cho_solve((L, True), fs)
@@ -237,7 +237,6 @@ class SuperDuperGP(BaseEstimator, RegressorMixin):
             etas=self.etas_))
 
         kernel = self.hrf_kernel.clone_with_theta(theta)
-        print kernel.theta
 
         # Getting eta weighted matrices
         pre_cov, pre_cross_cov, pre_mean_n, pre_mean_m, K_22 = \
@@ -485,13 +484,13 @@ if __name__ == '__main__':
     # GP parameters
     hrf_length = 32
     time_offset = 10
-    gamma = 20.0
+    gamma = 10.0
     fmin_max_iter = 20
     n_restarts_optimizer = 0
     n_iter = 5
     normalize_y = False
     optimize = True
-    sigma_noise = 0.2
+    sigma_noise = 0.1
     zeros_extremes = True
 
     # Mean function of GP set to a certain HRF model
