@@ -343,16 +343,6 @@ class SuperDuperGP(BaseEstimator, RegressorMixin):
         #     self.log_marginal_likelihood_value_ = -np.min(lm_values)
 
 
-
-        # XXX now we can call this
-        # output = self._fit(ys,
-        #                    hrf_measurement_points=self.hrf_measurement_points,
-        #                    visible_events=visible_events, etas=etas,
-        #                    beta_indices=beta_indices, initial_beta=initial_beta,
-        #                    unique_events=unique_events, f_mean=self.f_mean)
-
-
-
         self.f_mean = self.f_mean_
         loglikelihood, output = self._fit(optima[0][0])
 
@@ -379,61 +369,6 @@ class SuperDuperGP(BaseEstimator, RegressorMixin):
         """Please put here the scorer
         """
         pass
-
-    # def log_marginal_likelihood(self, theta):
-    # # , eval_gradient=None):
-    #     """This functions return the marginal log-likelihood
-
-    #     Rasmussen and Williams, model selection(E.q. 5.8)
-
-    #     Parameters
-    #     ----------
-    #     ys : array-like
-    #     kernel: kernel function
-    #     sigma_noise: float
-    #     theta: list of kernel's parameters
-
-    #     Returns
-    #     -------
-    #     loglikelihood: float
-
-    #     see Rasmussen and Williams book, model selection in regression. Eq. 5.8
-
-    #     """
-    #     kernel = self.hrf_kernel.clone_with_theta(theta)
-    #     K, K_cross, mu_n, mu_m, _ = kernel(self.hrf_measurement_points)
-
-    #     # Adding noise to the diagonal (Ridge)
-    #     indx, indy = np.diag_indices_from(K)
-    #     if self.zeros_extremes:
-    #         K[indx[:-2], indy[:-2]] += sigma_noise ** 2
-    #     else:
-    #         K[indx, indy] += sigma_noise ** 2
-
-    #     try:
-    #         L = cholesky(K, lower=True)
-
-    #     except LinAlgError:
-    #         return -np.inf
-
-    #     y_train = self.y_train
-    #     # XXX this shold not be here, waiting to refator it
-    #     if self.zeros_extremes:
-    #         y_train = np.append(y_train, np.array([0., 0.]))
-
-    #     fs = y_train - mu_n
-    #     y_train = fs[:, np.newaxis]
-    #     alpha = cho_solve((L, True), fs)
-
-    #     data_fit = -0.5 * fs.T.dot(alpha)
-    #     model_complexity = -np.log(np.diag(L)).sum()
-    #     normal_const =  -K.shape[0] / 2 * np.log(2 * np.pi)
-    #     loglikelihood_dims = data_fit + model_complexity + normal_const
-    #     # sum over all dim (sklearn)
-    #     loglikelihood = loglikelihood_dims.sum(-1)
-
-    #     print kernel.theta[0], model_complexity, loglikelihood
-    #     return loglikelihood
 
     def _constrained_optimization(self, obj_func, initial_theta, bounds):
         theta_opt, func_min, convergence_dict = fmin_l_bfgs_b(
@@ -484,7 +419,7 @@ if __name__ == '__main__':
     # GP parameters
     hrf_length = 32
     time_offset = 10
-    gamma = 10.0
+    gamma = 0.10
     fmin_max_iter = 20
     n_restarts_optimizer = 0
     n_iter = 5
