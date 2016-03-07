@@ -419,7 +419,7 @@ if __name__ == '__main__':
     # GP parameters
     hrf_length = 32
     time_offset = 10
-    gamma = 0.10
+    gamma = 10.
     fmin_max_iter = 20
     n_restarts_optimizer = 0
     n_iter = 5
