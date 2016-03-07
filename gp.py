@@ -445,11 +445,11 @@ if __name__ == '__main__':
     time_offset = 10
     gamma = 10.0
     fmin_max_iter = 20
-    n_restarts_optimizer = 15
+    n_restarts_optimizer = 0
     n_iter = 10
     normalize_y = True
     optimize = True
-    sigma_noise = 0.1
+    sigma_noise = 0.05
     zeros_extremes = True
 
     # Mean function of GP set to a certain HRF model
