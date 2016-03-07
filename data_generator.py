@@ -112,8 +112,8 @@ def make_design_matrix_hrf(
     # step 1: paradigm-related regressors
     if paradigm is not None:
         # create the condition-related regressors
-        names, _, _, _ = check_paradigm(paradigm)
-        print names
+        names0, _, _, _ = check_paradigm(paradigm)
+        names = np.append(names, np.unique(names0))
         hrf_measurement_points, _, _, beta_indices, _ = \
                     _get_hrf_measurements(paradigm, hrf_length=hrf_length,
                               t_r=t_r, time_offset=time_offset)
@@ -139,7 +139,7 @@ def make_design_matrix_hrf(
             matrix = np.hstack((matrix, add_regs))
         else:
             matrix = add_regs
-        names += add_reg_names
+        names = np.append(names, add_reg_names)
 
     # step 3: drifts
     drift, dnames = _make_drift(drift_model.lower(), frame_times, drift_order,
@@ -150,13 +150,13 @@ def make_design_matrix_hrf(
     else:
         matrix = drift
 
-    names += dnames
+    names = np.append(names, dnames)
 
     # step 4: Force the design matrix to be full rank at working precision
     matrix, _ = full_rank(matrix)
 
     design_matrix = pd.DataFrame(
-        matrix, columns=names, index=frame_times)
+        matrix, columns=list(names), index=frame_times)
     return design_matrix
 
 
