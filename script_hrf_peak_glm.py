@@ -22,6 +22,7 @@ rng = check_random_state(seed)
 hrf_length = 25
 dt = 0.1
 x_0 = np.arange(0, hrf_length  + dt, dt)
+
 n_x, n_y, n_z = 20, 20, 20
 event_types = ['ev1', 'ev2']
 n_events = 100
@@ -33,7 +34,6 @@ smoothing_fwhm = 1
 sigma = 2
 sigma_noise = 0.01
 threshold = 0.7
-seed = 42
 
 mask_img = nb.Nifti1Image(np.ones((n_x, n_y, n_z)), affine=np.eye(4))
 masker = NiftiMasker(mask_img=mask_img)
@@ -41,9 +41,11 @@ masker.fit()
 
 
 hrf_ushoot = 16.
+peak_range = np.arange(3, 9)
+norm_resid = np.zeros((len(peak_range), len(peak_range)))
 i = 0
 
-for hrf_peak_sim in xrange(3, 9):
+for isim, hrf_peak_sim in enumerate(peak_range):
 
 
     # Simulate with different hrf peaks
@@ -63,7 +65,7 @@ for hrf_peak_sim in xrange(3, 9):
     niimgs = nb.Nifti1Image(fmri, affine=np.eye(4))
 
 
-    for hrf_peak in xrange(3, 9):
+    for iest, hrf_peak in enumerate(peak_range):
 
         # GLM using HRF with a different peak
         hrf_est = _gamma_difference_hrf(1., oversampling=1./dt, time_length=hrf_length + dt,
@@ -83,7 +85,18 @@ for hrf_peak_sim in xrange(3, 9):
         glm = FirstLevelGLM(mask=mask_img, t_r=t_r, standardize=True,
                             noise_model='ols')
         glm.fit(niimgs, design)
+        #print 'n_timepoints, n_voxels: ', glm.results_[0][0].norm_resid.shape
+        #print glm.results_[0][0].resid
+        #print glm.results_[0][0].logL
+        print glm.results_[0][0].norm_resid.mean()
+        print np.median(glm.results_[0][0].norm_resid)
+        norm_resid[isim, iest] = glm.results_[0][0].norm_resid.mean()
 
 
-# Check the norm of the residuals!!
-# HOW?
+plt.matshow(norm_resid)
+plt.xlabel('simulation hrf peak')
+plt.xlabel('estimation hrf peak')
+plt.colorbar()
+plt.title('GLM residual norm')
+plt.show()
+
