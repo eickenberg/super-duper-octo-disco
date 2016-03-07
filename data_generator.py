@@ -223,10 +223,10 @@ def generate_spikes_time_series(n_events=200, n_blank_events=50,
 
 
 def generate_fmri(n_x, n_y, n_z, modulation=None, betas=None, n_events=200,
-                  n_blank_events=50, event_spacing=6, t_r=2,
+                  n_blank_events=50, event_spacing=6, t_r=2, hrf_length=25.,
                   smoothing_fwhm=2, event_types=['ev1', 'ev2'],
                   period_cut=64, time_offset=10, sigma_noise=0.001, sigma=None,
-                  threshold=None, seed=None):
+                  threshold=None, seed=None, f_hrf=None):
     """
 
     Parameters
@@ -269,7 +269,7 @@ def generate_fmri(n_x, n_y, n_z, modulation=None, betas=None, n_events=200,
         n_events=n_events, n_blank_events=n_blank_events,
         event_spacing=event_spacing, t_r=t_r, event_types=event_types,
         period_cut=period_cut, time_offset=time_offset, modulation=modulation,
-        seed=seed)
+        seed=seed, f_hrf=f_hrf, hrf_length=hrf_length)
 
     n_volumes, n_regressors = design.shape
 

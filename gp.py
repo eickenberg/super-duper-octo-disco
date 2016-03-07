@@ -13,7 +13,7 @@ from nistats.experimental_paradigm import check_paradigm
 from sklearn.utils.validation import check_is_fitted
 from scipy.optimize import fmin_l_bfgs_b
 from scipy.linalg import (cholesky, cho_solve, solve_triangular, LinAlgError)
-from nistats.hemodynamic_models import spm_hrf, glover_hrf
+from nistats.hemodynamic_models import spm_hrf, glover_hrf, _gamma_difference_hrf
 from hrf import bezier_hrf, physio_hrf
 import warnings
 from gp_kernels import HRFKernel
