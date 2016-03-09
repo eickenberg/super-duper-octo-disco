@@ -32,15 +32,15 @@ time_offset = 10
 gamma = 10.0
 fmin_max_iter = 10
 n_restarts_optimizer = 5
-n_iter = 10
+n_iter = 3
 normalize_y = False
-optimize = False
+optimize = True
 zeros_extremes = True
 #sigma_noise = 0.01
 
 
 
-for sigma_noise in np.array([0.1, 0.001, 0.00001]):
+for sigma_noise in np.array([0.1, 0.001, 0.00001, 1.]):
 
     plt.figure(figsize=(12, 8))
     i = 0
