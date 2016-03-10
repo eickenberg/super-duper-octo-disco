@@ -447,9 +447,15 @@ class SuperDuperGP(BaseEstimator, RegressorMixin):
 
     def scorer(self, ys_true, ys_test, paradigm):
         """Please put here the scorer
+
+        Parameters
+        ----------
+        ys_true: array-like, the signal without noise
+        ys_test: array-like, noisy signal used to learn the hrf
+        paradigm: dataframe
+
         """
         ys_fit, _, _, _ = self.predict(ys_test, paradigm)
-
         # Measure the norm or something
         import pdb; pdb.set_trace()  # XXX BREAKPOINT
         pass
@@ -535,7 +541,7 @@ if __name__ == '__main__':
     ys_acquired = ys + rng.randn(design.shape[0]) * sigma_noise ** 2
 
     hx, hy, hrf_var = gp.fit(ys_acquired, paradigm)
-    gp.scorer(ys, ys_acquired, paradigm)
+    # gp.scorer(ys, ys_acquired, paradigm)
 
     plt.fill_between(hx, hy - 1.96 * np.sqrt(hrf_var),
                      hy + 1.96 * np.sqrt(hrf_var), alpha=0.1)
