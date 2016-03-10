@@ -17,7 +17,7 @@ from nistats.design_matrix import (make_design_matrix, full_rank, _make_drift)
 from nistats.hemodynamic_models import (spm_hrf, glover_hrf, _resample_regressor,
                                         _gamma_difference_hrf)
 from hrf import bezier_hrf, physio_hrf
-from utils import _sample_condition
+from paradigm import _sample_condition
 import warnings
 from gp_kernels import HRFKernel
 from operator import itemgetter
@@ -409,9 +409,9 @@ class SuperDuperGP(BaseEstimator, RegressorMixin):
         hrf_var = output[1][2][order]
         hx, hy = hrf_measurement_points[order], output[1][1][order]
 
-        self.hx_ = hx[:-2]
-        self.f_hrf_ = hy[:-2]
-        self.f_hrf_var_ = hrf_var[:-2]
+        self.hx_ = hx #[:-2]
+        self.f_hrf_ = hy #[:-2]
+        self.f_hrf_var_ = hrf_var #[:-2]
         return hx, hy, hrf_var
 
     def predict(self, ys, paradigm):
@@ -439,15 +439,19 @@ class SuperDuperGP(BaseEstimator, RegressorMixin):
         matrix, _ = full_rank(matrix)
         # Least squares estimation
         beta_values = np.linalg.pinv(matrix).dot(ys)
+        ys_fit = matrix.dot(beta_values)
         # ress
-        ress = ys - matrix.dot(beta_values)
+        ress = ys - ys_fit
 
-        import pdb; pdb.set_trace()  # XXX BREAKPOINT
-        pass
+        return ys_fit, matrix, beta_values, ress
 
-    def scorer(self, ys_true, paradigm):
+    def scorer(self, ys_true, ys_test, paradigm):
         """Please put here the scorer
         """
+        ys_fit, _, _, _ = self.predict(ys_test, paradigm)
+
+        # Measure the norm or something
+        import pdb; pdb.set_trace()  # XXX BREAKPOINT
         pass
 
     def _constrained_optimization(self, obj_func, initial_theta, bounds):
@@ -499,13 +503,13 @@ if __name__ == '__main__':
     # GP parameters
     hrf_length = 32
     time_offset = 10
-    gamma = 0.1
+    gamma = 10.
     fmin_max_iter = 5
     n_restarts_optimizer = 0
-    n_iter = 2
+    n_iter = 3
     normalize_y = False
     optimize = False
-    sigma_noise = 0.5
+    sigma_noise = 0.1
     zeros_extremes = True
 
     # Mean function of GP set to a certain HRF model
@@ -527,9 +531,11 @@ if __name__ == '__main__':
     design = design[event_types].values  # forget about drifts for the moment
     beta = rng.randn(len(event_types))
 
-    ys = design.dot(beta) + rng.randn(design.shape[0]) * sigma_noise ** 2
+    ys = design.dot(beta)
+    ys_acquired = ys + rng.randn(design.shape[0]) * sigma_noise ** 2
 
-    hx, hy, hrf_var = gp.fit(ys, paradigm)
+    hx, hy, hrf_var = gp.fit(ys_acquired, paradigm)
+    gp.scorer(ys, ys_acquired, paradigm)
 
     plt.fill_between(hx, hy - 1.96 * np.sqrt(hrf_var),
                      hy + 1.96 * np.sqrt(hrf_var), alpha=0.1)
