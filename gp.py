@@ -13,8 +13,11 @@ from nistats.experimental_paradigm import check_paradigm
 from sklearn.utils.validation import check_is_fitted
 from scipy.optimize import fmin_l_bfgs_b
 from scipy.linalg import (cholesky, cho_solve, solve_triangular, LinAlgError)
-from nistats.hemodynamic_models import spm_hrf, glover_hrf, _gamma_difference_hrf
+from nistats.design_matrix import (make_design_matrix, full_rank, _make_drift)
+from nistats.hemodynamic_models import (spm_hrf, glover_hrf, _resample_regressor,
+                                        _gamma_difference_hrf)
 from hrf import bezier_hrf, physio_hrf
+from utils import _sample_condition
 import warnings
 from gp_kernels import HRFKernel
 from operator import itemgetter
@@ -140,24 +143,74 @@ def _get_hrf_model(hrf_model=None, hrf_length=25., dt=1., normalize=False):
 ###############################################################################
 #
 ###############################################################################
+def compute_regressor(f_hrf, exp_condition, frame_times, oversampling,
+                      min_onset, con_id='cond'):
+
+    n_samples = f_hrf.shape[0]
+    base_sampling = int(np.ceil(n_samples / 16.))
+
+    # high resolution hrf
+    hkernel = [f_hrf[:: int(base_sampling / oversampling)]]
+
+    hr_regressor, hr_frame_times = _sample_condition(
+        exp_condition, frame_times, oversampling, min_onset=min_onset)
+
+    conv_reg = np.array([np.convolve(hr_regressor, h)[:hr_regressor.size]
+                                                    for h in hkernel])
+    computed_regressors = _resample_regressor(
+                conv_reg, hr_frame_times, frame_times)
+
+    return computed_regressors, con_id
+
+
+def convolve_regressors(paradigm, f_hrf, frame_times, oversampling,
+                        min_onset=-24):
+    name, onset, duration, modulation = check_paradigm(paradigm)
+    regressor_names = []
+    regressor_matrix = None
+    for condition in np.unique(paradigm.name):
+        condition_mask = (name == condition)
+        exp_condition = (onset[condition_mask],
+                         duration[condition_mask],
+                         modulation[condition_mask])
+        reg, names = compute_regressor(f_hrf, exp_condition=exp_condition,
+                                       frame_times=frame_times,
+                                       con_id=condition, min_onset=min_onset,
+                                       oversampling=oversampling)
+        regressor_names.append(names)
+        if regressor_matrix is None:
+            regressor_matrix = reg
+        else:
+            regressor_matrix = np.hstack((regressor_matrix, reg))
+
+    return regressor_matrix, regressor_names
+
+
+###############################################################################
+#
+###############################################################################
 class SuperDuperGP(BaseEstimator, RegressorMixin):
     """
     """
     def __init__(self, hrf_length=32., t_r=2, time_offset=10, kernel=None,
-                 modulation=None, sigma_noise=0.001, gamma=1.,
-                 fmin_max_iter=10, n_iter=10,
-                 normalize_y=False, optimize=False, return_var=True,
-                 random_state=None, n_restarts_optimizer=3,
-                 zeros_extremes=False, f_mean=None, verbose=True):
+                 sigma_noise=0.001, gamma=1., fmin_max_iter=10, n_iter=10,
+                 drift_order=1, period_cut=64, normalize_y=False, optimize=False,
+                 return_var=True, random_state=None, n_restarts_optimizer=3,
+                 oversampling=16, drift_model='cosine', zeros_extremes=False,
+                 f_mean=None, min_onset=-24, verbose=True):
         self.t_r = t_r
         self.hrf_length = hrf_length
-        self.modulation = modulation
         self.time_offset = time_offset
+        self.period_cut = period_cut
+        self.oversampling = oversampling
         self.sigma_noise = sigma_noise
         self.gamma = gamma
         self.fmin_max_iter = fmin_max_iter
         self.n_iter = n_iter
         self.f_mean = f_mean
+        self.drift_order = drift_order
+        self.drift_model = drift_model
+        self.min_onset = min_onset
         self.normalize_y = normalize_y
         self.optimize = optimize
         self.kernel = kernel
@@ -344,7 +397,11 @@ class SuperDuperGP(BaseEstimator, RegressorMixin):
 
 
         self.f_mean = self.f_mean_
-        loglikelihood, output = self._fit(optima[0][0])
+        if self.optimize:
+            loglikelihood, output = self._fit(optima[0][0])
+        else:
+            loglikelihood, output = self._fit(self.hrf_kernel.theta)
+
 
         hrf_measurement_points = np.concatenate(output[1][0])
         order = np.argsort(hrf_measurement_points)
@@ -352,20 +409,43 @@ class SuperDuperGP(BaseEstimator, RegressorMixin):
         hrf_var = output[1][2][order]
         hx, hy = hrf_measurement_points[order], output[1][1][order]
 
+        self.hx_ = hx[:-2]
+        self.f_hrf_ = hy[:-2]
+        self.f_hrf_var_ = hrf_var[:-2]
         return hx, hy, hrf_var
 
+    def predict(self, ys, paradigm):
+        """
+        """
+        check_is_fitted(self, "f_hrf_")
+        names, onsets, durations, modulation = check_paradigm(paradigm)
+        exp_condition = (onsets, durations, modulation)
+        frame_times = np.arange(0, onsets.max() + self.time_offset, self.t_r)
 
-    def predict(self, paradigm):
-        """
-        """
+        matrix, names = convolve_regressors(paradigm, f_hrf=self.f_hrf_,
+                                            frame_times=frame_times,
+                                            oversampling=self.oversampling,
+                                            min_onset=self.min_onset)
+        # ADD drifts
+        drift, dnames = _make_drift(drift_model=self.drift_model.lower(),
+                                    frame_times=frame_times,
+                                    order=self.drift_order,
+                                    period_cut=self.period_cut)
+
+        matrix = np.hstack((matrix, drift))
+        names.append(dnames)
+
+        # Force the design matrix to be full rank at working precision
+        matrix, _ = full_rank(matrix)
+        # Least squares estimation
+        beta_values = np.linalg.pinv(matrix).dot(ys)
+        # ress
+        ress = ys - matrix.dot(beta_values)
+
+        import pdb; pdb.set_trace()  # XXX BREAKPOINT
         pass
 
-    def transform(self, paradimg):
-        """
-        """
-        pass
-
-    def scorer(self, paradigm, ys):
+    def scorer(self, ys_true, paradigm):
         """Please put here the scorer
         """
         pass
@@ -419,13 +499,13 @@ if __name__ == '__main__':
     # GP parameters
     hrf_length = 32
     time_offset = 10
-    gamma = 10.
-    fmin_max_iter = 20
+    gamma = 0.1
+    fmin_max_iter = 5
     n_restarts_optimizer = 0
-    n_iter = 5
+    n_iter = 2
     normalize_y = False
-    optimize = True
-    sigma_noise = 0.1
+    optimize = False
+    sigma_noise = 0.5
     zeros_extremes = True
 
     # Mean function of GP set to a certain HRF model
@@ -437,11 +517,10 @@ if __name__ == '__main__':
     f_hrf = interp1d(x_0, hrf_0)
     # f_hrf = None
 
-    gp = SuperDuperGP(hrf_length=hrf_length, modulation=modulation,
-                      gamma=gamma, fmin_max_iter=fmin_max_iter,
-                      sigma_noise=sigma_noise, time_offset=time_offset,
-                      n_iter=n_iter, normalize_y=normalize_y, verbose=True,
-                      optimize=optimize,
+    gp = SuperDuperGP(hrf_length=hrf_length, gamma=gamma,
+                      fmin_max_iter=fmin_max_iter, sigma_noise=sigma_noise,
+                      time_offset=time_offset, n_iter=n_iter,
+                      normalize_y=normalize_y, verbose=True, optimize=optimize,
                       n_restarts_optimizer=n_restarts_optimizer,
                       zeros_extremes=zeros_extremes, f_mean=f_hrf)
 
@@ -457,4 +536,4 @@ if __name__ == '__main__':
     plt.plot(hx, hy)
     # plt.axis([0, hrf_length, -0.02, 0.025])
     # plt.axis('tight')
-    plt.show()
+    # plt.show()
