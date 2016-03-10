@@ -2,9 +2,8 @@
 This implementation is based on scikit learn and Michael's implementation
 
 """
-# TODO add hrf as a mean for the gp
 # TODO add more kernels
-# TODO add hyperparameter optimization
+# TODO finish the scorer and add test
 
 import numpy as np
 from sklearn.base import BaseEstimator, RegressorMixin, clone
