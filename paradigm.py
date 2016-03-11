@@ -3,6 +3,71 @@ import numpy as np
 from collections import OrderedDict
 
 
+# Taken from nistats.hemodynamic_model
+def _sample_condition(exp_condition, frame_times, oversampling=16,
+                      min_onset=-24):
+    """Make a possibly oversampled event regressor from condition information.
+
+    Parameters
+    ----------
+    exp_condition : arraylike of shape (3, n_events)
+        yields description of events for this condition as a
+        (onsets, durations, amplitudes) triplet
+
+    frame_times : array of shape(n_scans)
+        sample time points
+
+    over_sampling : int, optional
+        factor for oversampling event regressor
+
+    min_onset : float, optional
+        minimal onset relative to frame_times[0] (in seconds)
+        events that start before frame_times[0] + min_onset are not considered
+
+    Returns
+    -------
+    regressor: array of shape(over_sampling * n_scans)
+        possibly oversampled event regressor
+    hr_frame_times : array of shape(over_sampling * n_scans)
+        time points used for regressor sampling
+    """
+    # Find the high-resolution frame_times
+    n = frame_times.size
+    min_onset = float(min_onset)
+    n_hr = ((n - 1) * 1. / (frame_times.max() - frame_times.min()) *
+            (frame_times.max() * (1 + 1. / (n - 1)) - frame_times.min() -
+             min_onset) * oversampling) + 1
+
+    hr_frame_times = np.linspace(frame_times.min() + min_onset,
+                                 frame_times.max() * (1 + 1. / (n - 1)), n_hr)
+
+    # Get the condition information
+    onsets, durations, values = tuple(map(np.asanyarray, exp_condition))
+    if (onsets < frame_times[0] + min_onset).any():
+        warnings.warn(('Some stimulus onsets are earlier than %d in the' +
+                       ' experiment and are thus not considered in the model'
+                % (frame_times[0] + min_onset)), UserWarning)
+
+    # Set up the regressor timecourse
+    tmax = len(hr_frame_times)
+    regressor = np.zeros_like(hr_frame_times).astype(np.float)
+    t_onset = np.minimum(np.searchsorted(hr_frame_times, onsets), tmax - 1)
+    regressor[t_onset] += values
+    t_offset = np.minimum(
+        np.searchsorted(hr_frame_times, onsets + durations),
+        tmax - 1)
+
+    # Handle the case where duration is 0 by offsetting at t + 1
+    for i, t in enumerate(t_offset):
+        if t < (tmax - 1) and t == t_onset[i]:
+            t_offset[i] += 1
+
+    regressor[t_offset] -= values
+    regressor = np.cumsum(regressor)
+
+    return regressor, hr_frame_times
+
+
 def check_stim_durations(stim_onsets, stimDurations):
     """ If no durations specified (stimDurations is None or empty np.array)
     then assume spiked stimuli: return a sequence of zeros with same

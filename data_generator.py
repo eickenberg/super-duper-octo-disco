@@ -204,12 +204,15 @@ def generate_spikes_time_series(n_events=200, n_blank_events=50,
 
     if f_hrf is None:
         design = make_design_matrix(measurement_times, paradigm=paradigm,
-                                    period_cut=period_cut, drift_order=drift_order)
+                                    period_cut=period_cut,
+                                    drift_order=drift_order)
     else:
         design = make_design_matrix_hrf(measurement_times, paradigm=paradigm,
-                                    period_cut=period_cut, drift_order=drift_order,
-                                    hrf_length=hrf_length,
-                                    t_r=t_r, time_offset=time_offset, f_hrf=f_hrf)
+                                        period_cut=period_cut,
+                                        drift_order=drift_order,
+                                        hrf_length=hrf_length,
+                                        t_r=t_r, time_offset=time_offset,
+                                        f_hrf=f_hrf)
 
     return paradigm, design, modulation, measurement_times
 
