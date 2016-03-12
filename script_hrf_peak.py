@@ -1,6 +1,8 @@
 import os
 import os.path as op
 import numpy as np
+import matplotlib
+matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 from sklearn.utils import check_random_state
 from scipy.interpolate import interp1d
@@ -107,5 +109,7 @@ for sigma_noise in np.array([0.1, 0.001, 0.00001, 0.0000001]):
     plt.tight_layout()
     plt.savefig(fig_name + '.png', format='png')
     plt.savefig(fig_name + '.eps', format='eps')
+    plt.savefig(fig_name + '.svg')
+    plt.savefig(fig_name + '.pdf')
     plt.show()
 
