@@ -34,7 +34,7 @@ fmin_max_iter = 10
 n_restarts_optimizer = 5
 n_iter = 3
 normalize_y = False
-optimize = True
+optimize = False
 zeros_extremes = True
 #sigma_noise = 0.01
 
