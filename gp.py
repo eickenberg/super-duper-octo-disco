@@ -41,8 +41,8 @@ def _get_design_from_hrf_measures(hrf_measures, beta_indices):
     return design
 
 
-def _get_hrf_measurements(paradigm, hrf_length=32., t_r=2, time_offset=10,
-                          zeros_extremes=False):
+def _get_hrf_measurements(paradigm, modulation=None, hrf_length=32., t_r=2,
+                          time_offset=10, zeros_extremes=False):
     """This function:
     Parameters
     ----------
@@ -60,7 +60,11 @@ def _get_hrf_measurements(paradigm, hrf_length=32., t_r=2, time_offset=10,
     beta_indices : list of list
     unique_events : array-like
     """
-    names, onsets, durations, modulation = check_paradigm(paradigm)
+    if modulation is None:
+        names, onsets, durations, modulation = check_paradigm(paradigm)
+    else:
+       names, onsets, durations, _ = check_paradigm(paradigm)
+
     frame_times = np.arange(0, onsets.max() + time_offset, t_r)
 
     time_differences = frame_times[:, np.newaxis] - onsets
@@ -196,7 +200,7 @@ class SuperDuperGP(BaseEstimator, RegressorMixin):
                  drift_order=1, period_cut=64, normalize_y=False, optimize=False,
                  return_var=True, random_state=None, n_restarts_optimizer=3,
                  oversampling=16, drift_model='cosine', zeros_extremes=False,
-                 f_mean=None, min_onset=-24, verbose=True):
+                 f_mean=None, min_onset=-24, verbose=True, modulation=None):
         self.t_r = t_r
         self.hrf_length = hrf_length
         self.time_offset = time_offset
@@ -218,6 +222,7 @@ class SuperDuperGP(BaseEstimator, RegressorMixin):
         self.zeros_extremes = zeros_extremes
         self.verbose = verbose
         self.n_restarts_optimizer = n_restarts_optimizer
+        self.modulation = modulation
 
     def _get_hrf_values_from_betas(self, ys, beta_values, beta_indices, etas,
                                    pre_cov, pre_cross_cov, pre_mu_n,
@@ -454,9 +459,9 @@ class SuperDuperGP(BaseEstimator, RegressorMixin):
         paradigm: dataframe
 
         """
-        ys_fit, _, _, _ = self.predict(ys_test, paradigm)
-        # Measure the norm or something
-        import pdb; pdb.set_trace()  # XXX BREAKPOINT
+        # ys_fit, _, _, _ = self.predict(ys_test, paradigm)
+        # # Measure the norm or something
+        # import pdb; pdb.set_trace()  # XXX BREAKPOINT
         pass
 
     def _constrained_optimization(self, obj_func, initial_theta, bounds):

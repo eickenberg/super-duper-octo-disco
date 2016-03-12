@@ -34,7 +34,7 @@ time_offset = 10
 gamma = 10.0
 fmin_max_iter = 10
 n_restarts_optimizer = 5
-n_iter = 10
+n_iter = 5
 normalize_y = False
 optimize = False
 zeros_extremes = True
@@ -79,7 +79,7 @@ for sigma_noise in np.array([0.1, 0.001, 0.00001, 0.0000001]):
                           gamma=gamma, fmin_max_iter=fmin_max_iter,
                           sigma_noise=sigma_noise, time_offset=time_offset,
                           n_iter=n_iter, normalize_y=normalize_y, verbose=True,
-                          optimize=optimize,
+                          optimize=optimize, modulation=modulation,
                           n_restarts_optimizer=n_restarts_optimizer,
                           zeros_extremes=zeros_extremes, f_mean=f_hrf)
 
