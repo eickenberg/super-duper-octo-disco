@@ -73,7 +73,7 @@ for sigma_noise in np.array([0.1, 0.001, 0.00001, 0.0000001]):
 
 
         # Estimation with 1 hrf
-        gp = SuperDuperGP(hrf_length=hrf_length, modulation=modulation,
+        gp = SuperDuperGP(hrf_length=hrf_length,
                           gamma=gamma, fmin_max_iter=fmin_max_iter,
                           sigma_noise=sigma_noise, time_offset=time_offset,
                           n_iter=n_iter, normalize_y=normalize_y, verbose=True,
