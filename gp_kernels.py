@@ -6,9 +6,10 @@ import numpy as np
 from sklearn.base import clone
 from scipy.sparse import coo_matrix
 # from scipy.optimize import fmin_cobyla
-from sklearn.gaussian_process.kernels import (Kernel, RBF,
+from sklearn.gaussian_process.kernels import (Kernel, RBF, DotProduct,
                                               StationaryKernelMixin)
-from sklearn.gaussian_process.kernels import ConstantKernel, Hyperparameter
+from sklearn.gaussian_process.kernels import (ConstantKernel, Hyperparameter,
+                                              Exponentiation)
 from scipy.interpolate import interp1d
 
 
@@ -79,7 +80,8 @@ class HRFKernel(StationaryKernelMixin, Kernel):
             pre_mean_n = f_mean(hrf_measurement_points).squeeze() * etas
             pre_mean_m = f_mean(evaluation_points).squeeze() * etas
         else:
-            pre_mean_n, pre_mean_m = np.zeros_like(etas), np.zeros_like(etas)
+            pre_mean_n = np.zeros_like(etas)
+            pre_mean_m = np.zeros_like(etas)
 
         if self.return_eval_cov:
             K_22 = self.kernel_(evaluation_points)

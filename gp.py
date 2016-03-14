@@ -252,9 +252,9 @@ class SuperDuperGP(BaseEstimator, RegressorMixin):
         except LinAlgError:
             loglikelihood = np.inf
             if K_22 is not None:
-                return (-loglikelihood, np.zeros(K_cross.shape[0]), None)
+                return (-loglikelihood, mu_m, np.zeros_like(mu_m))
             else:
-                return -loglikelihood, np.zeros(K_cross.shape[0])
+                return -loglikelihood, mu_m
 
         fs = ys - mu_n
         alpha = cho_solve((L, True), fs)
@@ -292,6 +292,9 @@ class SuperDuperGP(BaseEstimator, RegressorMixin):
         kernel = self.hrf_kernel.clone_with_params(**dict(
             beta_values=beta_values, beta_indices=self.beta_indices_,
             etas=self.etas_))
+
+        if np.isnan(theta):
+            theta = np.array([self.hrf_kernel.bounds[0][0]])
 
         kernel = self.hrf_kernel.clone_with_theta(theta)
 
@@ -380,6 +383,7 @@ class SuperDuperGP(BaseEstimator, RegressorMixin):
             # self._fit(self.hrf_kernel.theta)
 
             def obj_func(theta):
+                print theta
                 return -self._fit(theta)[0]
 
             optima = [(self._constrained_optimization(
@@ -518,8 +522,8 @@ if __name__ == '__main__':
     n_restarts_optimizer = 0
     n_iter = 3
     normalize_y = False
-    optimize = False
-    sigma_noise = 0.1
+    optimize = True
+    sigma_noise = 0.005
     zeros_extremes = True
 
     # Mean function of GP set to a certain HRF model

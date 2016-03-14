@@ -36,7 +36,7 @@ fmin_max_iter = 10
 n_restarts_optimizer = 5
 n_iter = 5
 normalize_y = False
-optimize = False
+optimize = True
 zeros_extremes = True
 #sigma_noise = 0.01
 
@@ -72,6 +72,7 @@ for sigma_noise in np.array([0.1, 0.001, 0.00001, 0.0000001]):
         hrf_0 = _get_hrf_model(hrf_model, hrf_length=hrf_length + dt,
                                dt=dt, normalize=True)
         f_hrf = interp1d(x_0, hrf_0)
+        f_hrf = None
 
 
         # Estimation with 1 hrf
@@ -88,6 +89,8 @@ for sigma_noise in np.array([0.1, 0.001, 0.00001, 0.0000001]):
         ys = design.dot(beta) + rng.randn(design.shape[0]) * sigma_noise ** 2
         hx, hy, hrf_var = gp.fit(ys, paradigm)
 
+        hy *= np.sign(hy[np.argmax(np.abs(hy))]) / np.abs(hy).max()
+        hrf_sim /= hrf_sim.max()
 
         # Plotting
         plt.subplot(2, 3, i + 1)
