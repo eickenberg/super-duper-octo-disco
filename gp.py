@@ -325,6 +325,8 @@ class SuperDuperGP(BaseEstimator, RegressorMixin):
             all_designs.append(design)
             all_betas.append(beta_values)
 
+        # TODO put here the noise estimation
+
         print -loglikelihood
 
         return loglikelihood, (beta_values,
