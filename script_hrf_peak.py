@@ -31,7 +31,7 @@ hrf_ushoot = 16.
 
 # GP parameters
 time_offset = 10
-gamma = 10.0
+gamma = 0.01
 fmin_max_iter = 10
 n_restarts_optimizer = 5
 n_iter = 5
@@ -43,6 +43,7 @@ zeros_extremes = True
 
 
 for sigma_noise in np.array([0.1, 0.001, 0.00001, 0.0000001]):
+# for sigma_noise in np.array([0.3]):
 
     plt.figure(figsize=(12, 12))
     i = 0

@@ -279,9 +279,6 @@ class SuperDuperGP(BaseEstimator, RegressorMixin):
         return loglikelihood, mu_bar
 
     def _fit(self, theta):
-                 # ys, hrf_measurement_points, visible_events, etas,
-                 # beta_indices, initial_beta, unique_events,
-                 # evaluation_points=None, f_mean=None
         """This function performs an alternate optimization.
         i) Finds HRF given the betas
         ii) Finds the betas given the HRF estimation, we build a new design
@@ -293,8 +290,9 @@ class SuperDuperGP(BaseEstimator, RegressorMixin):
             beta_values=beta_values, beta_indices=self.beta_indices_,
             etas=self.etas_))
 
-        if np.isnan(theta):
-            theta = np.array([self.hrf_kernel.bounds[0][0]])
+        index =  np.isnan(theta)
+        if any(index):
+            theta = self.hrf_kernel.bounds[:, 0]
 
         kernel = self.hrf_kernel.clone_with_theta(theta)
 
@@ -518,12 +516,12 @@ if __name__ == '__main__':
     hrf_length = 32
     time_offset = 10
     gamma = 10.
-    fmin_max_iter = 5
+    fmin_max_iter = 15
     n_restarts_optimizer = 0
     n_iter = 3
     normalize_y = False
     optimize = True
-    sigma_noise = 0.005
+    sigma_noise = 0.1
     zeros_extremes = True
 
     # Mean function of GP set to a certain HRF model
