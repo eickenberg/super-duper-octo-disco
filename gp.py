@@ -544,7 +544,9 @@ if __name__ == '__main__':
     beta = rng.randn(len(event_types))
 
     ys = design.dot(beta)
-    ys_acquired = ys + rng.randn(design.shape[0]) * sigma_noise ** 2
+    noise = rng.randn(design.shape[0]) 
+    scale_factor = np.linalg.norm(ys) / np.linalg.norm(noise)
+    ys_acquired = ys + noise * scale_factor * sigma_noise
 
     hx, hy, hrf_var = gp.fit(ys_acquired, paradigm)
     # gp.scorer(ys, ys_acquired, paradigm)
