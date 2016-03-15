@@ -531,7 +531,7 @@ if __name__ == '__main__':
     hrf_0 = _get_hrf_model(hrf_model, hrf_length=hrf_length + dt,
                            dt=dt, normalize=True)
     f_hrf = interp1d(x_0, hrf_0)
-    # f_hrf = None
+    f_hrf = None
 
     gp = SuperDuperGP(hrf_length=hrf_length, gamma=gamma,
                       fmin_max_iter=fmin_max_iter, sigma_noise=sigma_noise,
@@ -544,7 +544,7 @@ if __name__ == '__main__':
     beta = rng.randn(len(event_types))
 
     ys = design.dot(beta)
-    noise = rng.randn(design.shape[0]) 
+    noise = rng.randn(design.shape[0])
     scale_factor = np.linalg.norm(ys) / np.linalg.norm(noise)
     ys_acquired = ys + noise * scale_factor * sigma_noise
 

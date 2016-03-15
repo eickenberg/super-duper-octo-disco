@@ -42,13 +42,12 @@ zeros_extremes = True
 
 
 
-for sigma_noise in np.array([0.01]): #, 0.001, 0.1, 1.]):
+for sigma_noise in np.array([0.1, 0.01, 0.001, 0.1, 1.]):
 
     plt.figure(figsize=(12, 8))
     i = 0
 
     for hrf_peak in xrange(3, 9):
-
 
         # Simulate with different hrf peaks
         hrf_sim = _gamma_difference_hrf(1., oversampling=1./dt, time_length=hrf_length + dt,
@@ -69,10 +68,9 @@ for sigma_noise in np.array([0.01]): #, 0.001, 0.1, 1.]):
 
         # Mean function of GP set to a certain HRF model
         hrf_model = 'glover'
-        hrf_0 = _get_hrf_model(hrf_model, hrf_length=hrf_length + dt,
-                               dt=dt, normalize=True)
+        hrf_0 = _get_hrf_model(hrf_model, hrf_length=hrf_length + dt, dt=dt,
+                               normalize=True)
         f_hrf = interp1d(x_0, hrf_0)
-
 
         # Estimation with 1 hrf
         gp = SuperDuperGP(hrf_length=hrf_length, t_r=t_r, oversampling=1./dt, modulation=modulation,
@@ -85,11 +83,15 @@ for sigma_noise in np.array([0.01]): #, 0.001, 0.1, 1.]):
 
         design = design[event_types].values  # forget about drifts for the moment
         beta = rng.randn(len(event_types))
-        ys = design.dot(beta) + rng.randn(design.shape[0]) * sigma_noise ** 2
-        snr = 20 * (np.log10(np.linalg.norm(ys) / sigma_noise))
-        print 'SNR = ', snr, ' dB'
-        hx, hy, hrf_var = gp.fit(ys, paradigm)
 
+        ys = design.dot(beta)
+        noise = rng.randn(design.shape[0])
+        scale_factor = np.linalg.norm(ys) / np.linalg.norm(noise)
+        ys_acquired = ys + noise * scale_factor * sigma_noise
+
+        snr = 20 * (np.log10(np.linalg.norm(ys) / np.linalg.norm(ys_acquired - ys)))
+        print 'SNR = ', snr, ' dB'
+        hx, hy, hrf_var = gp.fit(ys_acquired, paradigm)
 
         # Plotting
         plt.subplot(2, 3, i + 1)
