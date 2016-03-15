@@ -252,9 +252,9 @@ class SuperDuperGP(BaseEstimator, RegressorMixin):
         except LinAlgError:
             loglikelihood = np.inf
             if K_22 is not None:
-                return (-loglikelihood, np.zeros(K_cross.shape[0]), None)
+                return (-loglikelihood, mu_m, np.zeros_like(mu_m))
             else:
-                return -loglikelihood, np.zeros(K_cross.shape[0])
+                return -loglikelihood, mu_m
 
         fs = ys - mu_n
         alpha = cho_solve((L, True), fs)
@@ -279,9 +279,6 @@ class SuperDuperGP(BaseEstimator, RegressorMixin):
         return loglikelihood, mu_bar
 
     def _fit(self, theta):
-                 # ys, hrf_measurement_points, visible_events, etas,
-                 # beta_indices, initial_beta, unique_events,
-                 # evaluation_points=None, f_mean=None
         """This function performs an alternate optimization.
         i) Finds HRF given the betas
         ii) Finds the betas given the HRF estimation, we build a new design
@@ -292,6 +289,10 @@ class SuperDuperGP(BaseEstimator, RegressorMixin):
         kernel = self.hrf_kernel.clone_with_params(**dict(
             beta_values=beta_values, beta_indices=self.beta_indices_,
             etas=self.etas_))
+
+        index =  np.isnan(theta)
+        if any(index):
+            theta = self.hrf_kernel.bounds[:, 0]
 
         kernel = self.hrf_kernel.clone_with_theta(theta)
 
@@ -386,6 +387,7 @@ class SuperDuperGP(BaseEstimator, RegressorMixin):
             # self._fit(self.hrf_kernel.theta)
 
             def obj_func(theta):
+                print theta
                 return -self._fit(theta)[0]
 
             optima = [(self._constrained_optimization(
@@ -520,11 +522,11 @@ if __name__ == '__main__':
     hrf_length = 32
     time_offset = 10
     gamma = 10.
-    fmin_max_iter = 5
+    fmin_max_iter = 15
     n_restarts_optimizer = 0
     n_iter = 3
     normalize_y = False
-    optimize = False
+    optimize = True
     sigma_noise = 0.1
     zeros_extremes = True
 
