@@ -163,9 +163,6 @@ class HRFKernel(StationaryKernelMixin, Kernel):
                  f_mean=None):
         """
         """
-        if evaluation_points is None:
-            evaluation_points = hrf_measurement_points
-
         if self.return_eval_cov:
             eta_weighted_cov, eta_weighted_cross_cov, \
             eta_weighted_mean_n, mu_m, K_22 = \
@@ -194,6 +191,8 @@ class HRFKernel(StationaryKernelMixin, Kernel):
     def diag(X):
         """Returns the diagonal of K(X, X)
         """
+        pass
+
 
 if __name__ == '__main__':
     import matplotlib.pyplot as plt

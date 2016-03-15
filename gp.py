@@ -257,7 +257,7 @@ class SuperDuperGP(BaseEstimator, RegressorMixin):
                 return -loglikelihood, mu_m
 
         fs = ys - mu_n
-        alpha = cho_solve((L, True), fs)
+        alpha = cho_solve((L, True), fs)        # K^-1 (ys - mu_n)
         mu_bar = K_cross.dot(alpha) + mu_m
 
         data_fit = -0.5 * fs.T.dot(alpha)
@@ -327,13 +327,7 @@ class SuperDuperGP(BaseEstimator, RegressorMixin):
 
         print -loglikelihood
 
-        data_fit = - 0.5 * (self.y_train - design.dot(beta_values))**2 / self.sigma_noise**2
-        normal_const = - beta_values.shape[0] / 2 * np.log(2 * np.pi * self.sigma_noise**2)
-        loglikelihood_dims = data_fit + normal_const
-        loglikelihood2 = loglikelihood_dims.sum(-1)
-        print -loglikelihood2
-
-        return loglikelihood2, (beta_values,
+        return loglikelihood, (beta_values,
                                (self.hrf_measurement_points, hrf_values, hrf_var),
                                all_hrf_values, all_designs, all_betas)
 
