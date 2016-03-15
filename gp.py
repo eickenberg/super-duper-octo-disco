@@ -326,6 +326,8 @@ class SuperDuperGP(BaseEstimator, RegressorMixin):
             all_betas.append(beta_values)
 
         # TODO put here the noise estimation
+        # residual_norm_squared = ((self.y_train - design.dot(beta)) ** 2).sum()
+        # sigma_squared_resid = residual_norm_squared / (design.shape[0] - design.shape[1])
 
         print -loglikelihood
 
