@@ -93,6 +93,9 @@ for sigma_noise in np.array([0.1, 0.01, 0.001, 0.1, 1.]):
         print 'SNR = ', snr, ' dB'
         hx, hy, hrf_var = gp.fit(ys_acquired, paradigm)
 
+        hy *= np.sign(hy[np.argmax(np.abs(hy))]) / np.abs(hy).max()
+        hrf_sim /= np.abs(hrf_sim).max()
+
         # Plotting
         plt.subplot(2, 3, i + 1)
         plt.tight_layout()
