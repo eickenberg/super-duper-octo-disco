@@ -36,13 +36,13 @@ fmin_max_iter = 10
 n_restarts_optimizer = 5
 n_iter = 3
 normalize_y = False
-optimize = True
+optimize = False
 zeros_extremes = True
 #sigma_noise = 0.01
 
 
 
-for sigma_noise in np.array([0.01]): #, 0.001, 0.1, 1.]):
+for sigma_noise in np.array([0.1, 0.001, 0.00001]): #, 0.001, 0.1, 1.]):
 
     plt.figure(figsize=(12, 8))
     i = 0
@@ -96,10 +96,10 @@ for sigma_noise in np.array([0.01]): #, 0.001, 0.1, 1.]):
         plt.tight_layout()
         #plt.subplots_adjust(hspace=.5)
         i += 1
-        plt.fill_between(hx, hy - 1.96 * np.sqrt(hrf_var),
-                         hy + 1.96 * np.sqrt(hrf_var), alpha=0.1)
-        plt.plot(hx, hy, 'b', label='estimated HRF')
-        plt.plot(x_0, hrf_sim, 'r--', label='simulated HRF')
+        plt.fill_between(hx, (hy - 1.96 * np.sqrt(hrf_var))/hy.max(),
+                         (hy + 1.96 * np.sqrt(hrf_var))/hy.max(), alpha=0.1)
+        plt.plot(hx, hy/hy.max(), 'b', label='estimated HRF')
+        plt.plot(x_0, hrf_sim/hrf_sim.max(), 'r--', label='simulated HRF')
         plt.title('hrf peak ' + str(hrf_peak))
         plt.xlabel('time (sec.)')
         plt.axis('tight')
