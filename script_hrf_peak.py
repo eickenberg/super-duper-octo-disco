@@ -38,11 +38,9 @@ n_iter = 3
 normalize_y = False
 optimize = False
 zeros_extremes = True
-#sigma_noise = 0.01
 
 
-
-for sigma_noise in np.array([0.1, 0.001, 0.00001]): #, 0.001, 0.1, 1.]):
+for sigma_noise in np.array([0.1, 0.001, 0.00001]):
 
     plt.figure(figsize=(12, 8))
     i = 0
@@ -51,50 +49,43 @@ for sigma_noise in np.array([0.1, 0.001, 0.00001]): #, 0.001, 0.1, 1.]):
 
 
         # Simulate with different hrf peaks
-        hrf_sim = _gamma_difference_hrf(1., oversampling=1./dt, time_length=hrf_length + dt,
-                                      onset=0., delay=hrf_peak, undershoot=hrf_ushoot,
-                                      dispersion=1., u_dispersion=1., ratio=0.167)
+        hrf_sim = _gamma_difference_hrf(1., oversampling=1./dt, time_length=hrf_length+dt,
+                                    onset=0., delay=hrf_peak, undershoot=hrf_ushoot,
+                                    dispersion=1., u_dispersion=1., ratio=0.167)
         f_hrf_sim = interp1d(x_0, hrf_sim)
 
         paradigm, design, modulation, measurement_time = \
-            generate_spikes_time_series(n_events=n_events,
-                                        n_blank_events=n_blank_events,
-                                        event_spacing=event_spacing, t_r=t_r,
-                                        return_jitter=True, jitter_min=jitter_min,
-                                        jitter_max=jitter_max,
-                                        f_hrf=f_hrf_sim, hrf_length=hrf_length,
-                                        event_types=event_types, period_cut=64,
-                                        time_offset=10, modulation=None, seed=seed)
+            generate_spikes_time_series(n_events=n_events, n_blank_events=n_blank_events,
+                            event_spacing=event_spacing, t_r=t_r, return_jitter=True,
+                            jitter_min=jitter_min, jitter_max=jitter_max, f_hrf=f_hrf_sim,
+                            hrf_length=hrf_length, event_types=event_types, period_cut=64,
+                            time_offset=10, modulation=None, seed=seed)
+        design = design[event_types].values  # forget about drifts for the moment
+        beta = rng.randn(len(event_types))
+        ys = design.dot(beta) + rng.randn(design.shape[0]) * sigma_noise ** 2
+
+        snr = 20 * (np.log10(np.linalg.norm(ys) / sigma_noise))
+        print 'SNR = ', snr, ' dB'
 
 
-        # Mean function of GP set to a certain HRF model
+        # Estimation with 1 hrf. Uses glover as mean GP
         hrf_model = 'glover'
         hrf_0 = _get_hrf_model(hrf_model, hrf_length=hrf_length + dt,
                                dt=dt, normalize=True)
         f_hrf = interp1d(x_0, hrf_0)
+        gp = SuperDuperGP(hrf_length=hrf_length, t_r=t_r, oversampling=1./dt, gamma=gamma,
+                    modulation=modulation, fmin_max_iter=fmin_max_iter, sigma_noise=sigma_noise,
+                    time_offset=time_offset, n_iter=n_iter, normalize_y=normalize_y, verbose=True,
+                    optimize=optimize, n_restarts_optimizer=n_restarts_optimizer,
+                    zeros_extremes=zeros_extremes, f_mean=f_hrf)
+        (hx, hy, hrf_var,
+         resid_norm_sq,
+         sigma_sq_resid) = gp.fit(ys, paradigm)
 
 
-        # Estimation with 1 hrf
-        gp = SuperDuperGP(hrf_length=hrf_length, t_r=t_r, oversampling=1./dt, modulation=modulation,
-                          gamma=gamma, fmin_max_iter=fmin_max_iter,
-                          sigma_noise=sigma_noise, time_offset=time_offset,
-                          n_iter=n_iter, normalize_y=normalize_y, verbose=True,
-                          optimize=optimize,
-                          n_restarts_optimizer=n_restarts_optimizer,
-                          zeros_extremes=zeros_extremes, f_mean=f_hrf)
-
-        design = design[event_types].values  # forget about drifts for the moment
-        beta = rng.randn(len(event_types))
-        ys = design.dot(beta) + rng.randn(design.shape[0]) * sigma_noise ** 2
-        snr = 20 * (np.log10(np.linalg.norm(ys) / sigma_noise))
-        print 'SNR = ', snr, ' dB'
-        hx, hy, hrf_var = gp.fit(ys, paradigm)
-
-
-        # Plotting
+        # Plotting each HRF simulated vs estimated
         plt.subplot(2, 3, i + 1)
         plt.tight_layout()
-        #plt.subplots_adjust(hspace=.5)
         i += 1
         plt.fill_between(hx, (hy - 1.96 * np.sqrt(hrf_var))/hy.max(),
                          (hy + 1.96 * np.sqrt(hrf_var))/hy.max(), alpha=0.1)
@@ -103,11 +94,12 @@ for sigma_noise in np.array([0.1, 0.001, 0.00001]): #, 0.001, 0.1, 1.]):
         plt.title('hrf peak ' + str(hrf_peak))
         plt.xlabel('time (sec.)')
         plt.axis('tight')
-        #plt.legend()
 
+    # Save one image per noise level, with different HRFs
     fig_folder = 'images'
     if not op.exists(fig_folder): os.makedirs(fig_folder)
-    fig_name = op.join(fig_folder, 'results_GP_simulation_diff_hrf_peak_sigma' + str(sigma_noise))
+    fig_name = op.join(fig_folder, \
+        'results_GP_simulation_diff_hrf_peak_sigma' + str(sigma_noise))
     plt.tight_layout()
     plt.savefig(fig_name + '.png', format='png')
     plt.savefig(fig_name + '.eps', format='eps')
