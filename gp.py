@@ -325,6 +325,10 @@ class SuperDuperGP(BaseEstimator, RegressorMixin):
             all_designs.append(design)
             all_betas.append(beta_values)
 
+        # TODO put here the noise estimation
+        # residual_norm_squared = ((self.y_train - design.dot(beta)) ** 2).sum()
+        # sigma_squared_resid = residual_norm_squared / (design.shape[0] - design.shape[1])
+
         print -loglikelihood
 
         return loglikelihood, (beta_values,
@@ -531,7 +535,7 @@ if __name__ == '__main__':
     hrf_0 = _get_hrf_model(hrf_model, hrf_length=hrf_length + dt,
                            dt=dt, normalize=True)
     f_hrf = interp1d(x_0, hrf_0)
-    # f_hrf = None
+    f_hrf = None
 
     gp = SuperDuperGP(hrf_length=hrf_length, gamma=gamma,
                       fmin_max_iter=fmin_max_iter, sigma_noise=sigma_noise,
@@ -544,7 +548,7 @@ if __name__ == '__main__':
     beta = rng.randn(len(event_types))
 
     ys = design.dot(beta)
-    noise = rng.randn(design.shape[0]) 
+    noise = rng.randn(design.shape[0])
     scale_factor = np.linalg.norm(ys) / np.linalg.norm(noise)
     ys_acquired = ys + noise * scale_factor * sigma_noise
 
