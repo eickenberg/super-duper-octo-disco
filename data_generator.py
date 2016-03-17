@@ -281,22 +281,20 @@ def generate_fmri(n_x, n_y, n_z, modulation=None, betas=None, n_events=200,
 
     # Assign a temporal series to each image
     for i, condition in enumerate(event_types):
-        #print condition
         ind = np.where(event_types != condition)[0]
         events = event_types[ind]
         cond_design = design.copy()
-        #print 'condition design: ', cond_design
         cond_design[events] = 0
-
         fmri_timeseries[masks[condition], :] = cond_design.dot(betas)
-        #print 'timeseries condition: ', fmri_timeseries[masks[condition], :]
 
         for k, s in enumerate(sigma_smoothing):
             gaussian_filter1d(fmri_timeseries, sigma=s,
                               output=fmri_timeseries, axis=k)
-        #print 'timeseries after smoothing: ', fmri_timeseries
-        fmri_timeseries += sigma_noise * rng.randn(n_x, n_y, n_z, n_volumes)
-        #print 'timeseries with noise: ', fmri_timeseries
+
+        noise = rng.randn(n_x, n_y, n_z, n_volumes)
+        scale_factor = (np.linalg.norm(fmri_timeseries[masks[condition], :], axis=1) \
+                        / np.linalg.norm(noise[masks[condition], :], axis=1)).mean()
+        fmri_timeseries += sigma_noise * noise * scale_factor
 
     return fmri_timeseries, paradigm, design, masks
 
