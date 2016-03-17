@@ -39,13 +39,14 @@ normalize_y = False
 optimize = False
 zeros_extremes = True
 
+range_peak = np.arange(5, 6)
 
-for sigma_noise in np.array([0.1, 0.001, 0.00001]):
+for sigma_noise in np.array([0.1]): #0.1, 0.001, 0.00001]):
 
     plt.figure(figsize=(12, 8))
     i = 0
 
-    for hrf_peak in xrange(3, 9):
+    for hrf_peak in range_peak:
 
 
         # Simulate with different hrf peaks
@@ -62,9 +63,12 @@ for sigma_noise in np.array([0.1, 0.001, 0.00001]):
                             time_offset=10, modulation=None, seed=seed)
         design = design[event_types].values  # forget about drifts for the moment
         beta = rng.randn(len(event_types))
-        ys = design.dot(beta) + rng.randn(design.shape[0]) * sigma_noise ** 2
+        ys = design.dot(beta)
+        noise = rng.randn(design.shape[0])
+        scale_factor = np.linalg.norm(ys) / np.linalg.norm(noise)
+        ys_acquired = ys + noise * scale_factor * sigma_noise
 
-        snr = 20 * (np.log10(np.linalg.norm(ys) / sigma_noise))
+        snr = 20 * (np.log10(np.linalg.norm(ys_acquired) / sigma_noise))
         print 'SNR = ', snr, ' dB'
 
 
@@ -80,20 +84,32 @@ for sigma_noise in np.array([0.1, 0.001, 0.00001]):
                     zeros_extremes=zeros_extremes, f_mean=f_hrf)
         (hx, hy, hrf_var,
          resid_norm_sq,
-         sigma_sq_resid) = gp.fit(ys, paradigm)
-
+         sigma_sq_resid) = gp.fit(ys_acquired, paradigm)
+        print 'residual norm square = ', resid_norm_sq
 
         # Plotting each HRF simulated vs estimated
-        plt.subplot(2, 3, i + 1)
-        plt.tight_layout()
+        if len(range_peak)==5 or len(range_peak)==6:
+            plt.subplot(2, 3, i + 1)
+            plt.tight_layout()
+        elif len(range_peak)==3 or len(range_peak)==4:
+            plt.subplot(2, 2, i + 1)
+            plt.tight_layout()
+        elif len(range_peak)==2:
+            plt.subplot(1, 2, i + 1)
+            plt.tight_layout()
+        else:
+            plt.figure()
         i += 1
         plt.fill_between(hx, (hy - 1.96 * np.sqrt(hrf_var))/hy.max(),
                          (hy + 1.96 * np.sqrt(hrf_var))/hy.max(), alpha=0.1)
         plt.plot(hx, hy/hy.max(), 'b', label='estimated HRF')
         plt.plot(x_0, hrf_sim/hrf_sim.max(), 'r--', label='simulated HRF')
+        plt.plot(x_0, hrf_0/hrf_0.max(), 'k-', label='GP mean')
         plt.title('hrf peak ' + str(hrf_peak))
         plt.xlabel('time (sec.)')
         plt.axis('tight')
+        if len(range_peak)==1:
+            plt.legend()
 
     # Save one image per noise level, with different HRFs
     fig_folder = 'images'
@@ -102,8 +118,6 @@ for sigma_noise in np.array([0.1, 0.001, 0.00001]):
         'results_GP_simulation_diff_hrf_peak_sigma' + str(sigma_noise))
     plt.tight_layout()
     plt.savefig(fig_name + '.png', format='png')
-    plt.savefig(fig_name + '.eps', format='eps')
-    plt.savefig(fig_name + '.svg')
-    plt.savefig(fig_name + '.pdf')
+    plt.savefig(fig_name + '.pdf', format='pdf')
     plt.show()
 
