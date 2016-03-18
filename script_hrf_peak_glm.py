@@ -54,7 +54,7 @@ hrf_ushoot = 16.
 norm_resid = np.zeros((len(peak_range), len(peak_range)))
 i = 0
 
-for sigma_noise in np.array([0.1, 0.001, 0.00001, 0.0000001]):
+for sigma_noise in np.array([10., 1., 0.1, 0.001, 0.00001, 0.0000001]):
 
     for isim, hrf_peak_sim in enumerate(peak_range_sim):
 
@@ -63,8 +63,8 @@ for sigma_noise in np.array([0.1, 0.001, 0.00001, 0.0000001]):
                                       onset=0., delay=hrf_peak_sim, undershoot=hrf_ushoot,
                                       dispersion=1., u_dispersion=1., ratio=0.167)
         f_hrf_sim = interp1d(x_0, hrf_sim)
-        plt.plot(hrf_sim)
-        plt.show()
+        #plt.plot(hrf_sim)
+        #plt.show()
 
         fmri, paradigm, design_sim, masks = generate_fmri(
             n_x=n_x, n_y=n_y, n_z=n_y, modulation=None, n_events=n_events,
@@ -74,7 +74,7 @@ for sigma_noise in np.array([0.1, 0.001, 0.00001, 0.0000001]):
             f_hrf=f_hrf_sim, hrf_length=hrf_length,
             period_cut=period_cut, drift_order=drift_order)
 
-        fmri = fmri / fmri.mean() * 100
+        #fmri = fmri / fmri.mean() * 100
         niimgs = nb.Nifti1Image(fmri, affine=np.eye(4))
 
         for iest, hrf_peak in enumerate(peak_range):
@@ -82,7 +82,7 @@ for sigma_noise in np.array([0.1, 0.001, 0.00001, 0.0000001]):
             # GLM using HRF with a different peak
             hrf_est = _gamma_difference_hrf(1., oversampling=1./dt, time_length=hrf_length + dt,
                                           onset=0., delay=hrf_peak, undershoot=hrf_ushoot,
-                                          dispersion=hrf_width, u_dispersion=1., ratio=0.167)
+                                          dispersion=1., u_dispersion=1., ratio=0.167)
             f_hrf_est = interp1d(x_0, hrf_est)
 
             _, design, _, _ = generate_spikes_time_series(
@@ -99,6 +99,12 @@ for sigma_noise in np.array([0.1, 0.001, 0.00001, 0.0000001]):
             #print 'n_timepoints, n_voxels: ', glm.results_[0][0].norm_resid.shape
             #print glm.results_[0][0].resid
             #print glm.results_[0][0].logL
+            snr = np.linalg.norm(fmri, axis=3) / sigma_noise
+            snr_db = 20 * (np.log10(np.linalg.norm(fmri, axis=3) / sigma_noise))
+            print 'sigma_noise = ', sigma_noise
+            print 'SNR = ', snr.mean()
+            print 'SNR = ', snr_db.mean(), ' dB'
+
             print glm.results_[0][0].norm_resid.mean()
             norm_resid[isim, iest] = np.linalg.norm(glm.results_[0][0].resid, axis=0).mean()
 

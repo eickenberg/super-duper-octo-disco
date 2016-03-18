@@ -331,10 +331,14 @@ class SuperDuperGP(BaseEstimator, RegressorMixin):
         # TODO put here the noise estimation
         # residual_norm_squared = ((self.y_train - design.dot(beta)) ** 2).sum()
         # sigma_squared_resid = residual_norm_squared / (design.shape[0] - design.shape[1])
+        residual_norm_squared = ((self.y_train - design.dot(beta_values)) ** 2).sum()
+        sigma_squared_resid = residual_norm_squared / (design.shape[0] - design.shape[1])
 
         return loglikelihood, (beta_values,
                                (self.hrf_measurement_points, hrf_values, hrf_var),
+                               (residual_norm_squared, sigma_squared_resid),
                                all_hrf_values, all_designs, all_betas)
+
 
     def fit(self, ys, paradigm, initial_beta=None):
 
@@ -414,10 +418,13 @@ class SuperDuperGP(BaseEstimator, RegressorMixin):
         hrf_var = output[1][2][order]
         hx, hy = hrf_measurement_points[order], output[1][1][order]
 
+        residual_norm_squared = output[2][0]
+        sigma_squared_resid = output[2][1]
+
         self.hx_ = hx #[:-2]
         self.f_hrf_ = hy #[:-2]
         self.f_hrf_var_ = hrf_var #[:-2]
-        return hx, hy, hrf_var
+        return (hx, hy, hrf_var, residual_norm_squared, sigma_squared_resid)
 
     def predict(self, ys, paradigm):
         """
@@ -519,11 +526,11 @@ if __name__ == '__main__':
     time_offset = 10
     gamma = 10.
     fmin_max_iter = 10
-    n_restarts_optimizer = 3
+    n_restarts_optimizer = 0
     n_iter = 3
     normalize_y = False
     optimize = True
-    sigma_noise = 0.1
+    sigma_noise = 5.
     zeros_extremes = True
 
     # Mean function of GP set to a certain HRF model
@@ -550,15 +557,21 @@ if __name__ == '__main__':
     scale_factor = np.linalg.norm(ys) / np.linalg.norm(noise)
     ys_acquired = ys + noise * scale_factor * sigma_noise
 
-    hx, hy, hrf_var = gp.fit(ys_acquired, paradigm)
+    (hx, hy, hrf_var,
+     resid_norm_sq,
+     sigma_sq_resid) = gp.fit(ys_acquired, paradigm)
+
 
     hy *= np.sign(hy[np.argmax(np.abs(hy))]) / np.abs(hy).max()
+    hrf_0 /= hrf_0.max()
 
-    # gp.scorer(ys,ys_acquired, paradigm)
+    # gp.scorer(ys, ys_acquired, paradigm)
 
     plt.fill_between(hx, hy - 1.96 * np.sqrt(hrf_var),
                      hy + 1.96 * np.sqrt(hrf_var), alpha=0.1)
     plt.plot(hx, hy)
+    plt.plot(x_0, hrf_0)
+
     # plt.axis([0, hrf_length, -0.02, 0.025])
     # plt.axis('tight')
     # plt.show()

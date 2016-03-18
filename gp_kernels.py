@@ -72,7 +72,8 @@ class HRFKernel(StationaryKernelMixin, Kernel):
     """
     def __init__(self, gamma=10., gamma_bounds=(1e-5, 1e5), kernel=None,
                  beta_values=None, beta_indices=None, etas=None, sigma_0=1.,
-                 sigma_0_bounds=(1e-5, 1e5), return_eval_cov=True):
+                 sigma_0_bounds=(1e-5, 1e5), return_eval_cov=True,
+                 eval_gradient=False):
         self.return_eval_cov = return_eval_cov
         self.beta_values = beta_values
         self.beta_indices = beta_indices
