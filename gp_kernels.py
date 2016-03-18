@@ -105,7 +105,7 @@ class HRFKernel(StationaryKernelMixin, Kernel):
         pre_cross_cov: array-like (optional)
         """
         if self.kernel is None:
-            self.kernel_ = ConstantKernel(1., constant_value_bounds="fixed") \
+            self.kernel_ = ConstantKernel(self.sigma_0, constant_value_bounds="fixed") \
                 * RBF(self.gamma, length_scale_bounds="fixed")
             # self.kernel_ = Kernel_hrf(self.gamma, length_scale_bounds='fixed',
             #                           sigma_0=self.sigma_0,
