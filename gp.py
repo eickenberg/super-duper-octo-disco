@@ -384,6 +384,8 @@ class SuperDuperGP(BaseEstimator, RegressorMixin):
         self.initial_beta_ = initial_beta
 
         # Maximizing the log-likelihood (gradient based optimization)
+        self.f_mean_ = self.f_mean
+        self.f_mean = None
         if self.optimize:
 
             def obj_func(theta):
@@ -408,6 +410,7 @@ class SuperDuperGP(BaseEstimator, RegressorMixin):
             self.hrf_kernel.theta = self.theta_
             self.log_marginal_likelihood_value_ = -np.min(lm_values)
             # Refit the model
+            self.f_mean = self.f_mean_
             loglikelihood, output = self._fit(self.theta_)
         else:
             loglikelihood, output = self._fit(self.hrf_kernel.theta)
