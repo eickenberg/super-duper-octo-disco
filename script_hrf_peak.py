@@ -42,7 +42,7 @@ zeros_extremes = True
 range_peak = np.arange(2, 8)
 
 
-# for sigma_noise in np.array([5., 2., 1., 0.5, 0.1, 0.01]):
+for sigma_noise in np.array([5., 2., 1., 0.5, 0.1, 0.01]):
 # for sigma_noise in np.array([5]):
 
     plt.figure(figsize=(12, 8))
