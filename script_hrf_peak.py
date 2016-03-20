@@ -53,6 +53,7 @@ for sigma_noise in np.array([0.1]): #0.1, 0.001, 0.00001]):
         hrf_sim = _gamma_difference_hrf(1., oversampling=1./dt, time_length=hrf_length+dt,
                                     onset=0., delay=hrf_peak, undershoot=hrf_ushoot,
                                     dispersion=1., u_dispersion=1., ratio=0.167)
+        hrf_sim /= np.linalg.norm(hrf_sim)
         f_hrf_sim = interp1d(x_0, hrf_sim)
 
         paradigm, design, modulation, measurement_time = \
@@ -76,6 +77,7 @@ for sigma_noise in np.array([0.1]): #0.1, 0.001, 0.00001]):
         hrf_model = 'glover'
         hrf_0 = _get_hrf_model(hrf_model, hrf_length=hrf_length + dt,
                                dt=dt, normalize=True)
+        hrf_0 /= np.linalg.norm(hrf_0)
         f_hrf = interp1d(x_0, hrf_0)
         gp = SuperDuperGP(hrf_length=hrf_length, t_r=t_r, oversampling=1./dt, gamma=gamma,
                     modulation=modulation, fmin_max_iter=fmin_max_iter, sigma_noise=sigma_noise,
@@ -100,9 +102,13 @@ for sigma_noise in np.array([0.1]): #0.1, 0.001, 0.00001]):
         else:
             plt.figure()
         i += 1
-        plt.fill_between(hx, (hy - 1.96 * np.sqrt(hrf_var))/hy.max(),
-                         (hy + 1.96 * np.sqrt(hrf_var))/hy.max(), alpha=0.1)
-        plt.plot(hx, hy/hy.max(), 'b', label='estimated HRF')
+        if np.abs(hy.max())>np.abs(hy.min()):
+            nm = hy.max()
+        else:
+            nm = hy.min()
+        plt.fill_between(hx, (hy - 1.96 * np.sqrt(hrf_var))/nm,
+                         (hy + 1.96 * np.sqrt(hrf_var))/nm, alpha=0.1)
+        plt.plot(hx, hy/nm, 'b', label='estimated HRF')
         plt.plot(x_0, hrf_sim/hrf_sim.max(), 'r--', label='simulated HRF')
         plt.plot(x_0, hrf_0/hrf_0.max(), 'k-', label='GP mean')
         plt.title('hrf peak ' + str(hrf_peak))
