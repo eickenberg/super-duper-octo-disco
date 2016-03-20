@@ -32,7 +32,7 @@ hrf_ushoot = 16.
 # GP parameters
 time_offset = 10
 gamma = 3.0
-fmin_max_iter = 20
+fmin_max_iter = 30
 n_restarts_optimizer = 0
 n_iter = 3
 normalize_y = False
@@ -41,10 +41,7 @@ zeros_extremes = True
 
 range_peak = np.arange(2, 8)
 
-
-for sigma_noise in np.array([5., 2., 1., 0.5, 0.1, 0.01]):
-# for sigma_noise in np.array([5]):
-
+for sigma_noise in np.array([2., 1., 0.5, 0.1, 0.01]):
     plt.figure(figsize=(12, 8))
     i = 0
 
@@ -82,10 +79,10 @@ for sigma_noise in np.array([5., 2., 1., 0.5, 0.1, 0.01]):
         hrf_0 = _get_hrf_model(hrf_model, hrf_length=hrf_length + dt,
                                dt=dt, normalize=True)
         f_hrf = interp1d(x_0, hrf_0)
-        f_hrf = None
+        # f_hrf = None
 
         gp = SuperDuperGP(hrf_length=hrf_length, t_r=t_r, oversampling=1./dt, gamma=gamma,
-                    modulation=modulation, fmin_max_iter=fmin_max_iter, sigma_noise=sigma_noise,
+                    modulation=modulation, fmin_max_iter=fmin_max_iter, sigma_noise=1.,
                     time_offset=time_offset, n_iter=n_iter, normalize_y=normalize_y, verbose=True,
                     optimize=optimize, n_restarts_optimizer=n_restarts_optimizer,
                     zeros_extremes=zeros_extremes, f_mean=f_hrf)

@@ -326,13 +326,12 @@ class SuperDuperGP(BaseEstimator, RegressorMixin):
             all_betas.append(beta_values)
 
             if self.verbose:
-                print loglikelihood
+                print loglikelihood, self.sigma_noise
 
-        # TODO put here the noise estimation
-        # residual_norm_squared = ((self.y_train - design.dot(beta)) ** 2).sum()
-        # sigma_squared_resid = residual_norm_squared / (design.shape[0] - design.shape[1])
         residual_norm_squared = ((self.y_train - design.dot(beta_values)) ** 2).sum()
         sigma_squared_resid = residual_norm_squared / (design.shape[0] - design.shape[1])
+
+        self.sigma_noise = np.sqrt(sigma_squared_resid)
 
         return loglikelihood, (beta_values,
                                (self.hrf_measurement_points, hrf_values, hrf_var),
@@ -424,9 +423,9 @@ class SuperDuperGP(BaseEstimator, RegressorMixin):
         residual_norm_squared = output[2][0]
         sigma_squared_resid = output[2][1]
 
-        self.hx_ = hx #[:-2]
-        self.f_hrf_ = hy #[:-2]
-        self.f_hrf_var_ = hrf_var #[:-2]
+        self.hx_ = hx
+        self.f_hrf_ = hy
+        self.f_hrf_var_ = hrf_var
         return (hx, hy, hrf_var, residual_norm_squared, sigma_squared_resid)
 
     def predict(self, ys, paradigm):
