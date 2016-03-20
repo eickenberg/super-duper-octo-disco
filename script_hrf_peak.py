@@ -32,7 +32,7 @@ hrf_ushoot = 16.
 # GP parameters
 time_offset = 10
 gamma = 3.0
-fmin_max_iter = 30
+fmin_max_iter = 20
 n_restarts_optimizer = 0
 n_iter = 3
 normalize_y = False
