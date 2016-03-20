@@ -31,18 +31,17 @@ hrf_ushoot = 16.
 
 # GP parameters
 time_offset = 10
-gamma = 10.0
-fmin_max_iter = 10
-n_restarts_optimizer = 5
+gamma = 3.0
+fmin_max_iter = 20
+n_restarts_optimizer = 0
 n_iter = 3
 normalize_y = False
 optimize = False
 zeros_extremes = True
 
-range_peak = np.arange(5, 6)
+range_peak = np.arange(2, 8)
 
-for sigma_noise in np.array([0.1]): #0.1, 0.001, 0.00001]):
-
+for sigma_noise in np.array([2., 1., 0.5, 0.1, 0.01]):
     plt.figure(figsize=(12, 8))
     i = 0
 
@@ -53,7 +52,6 @@ for sigma_noise in np.array([0.1]): #0.1, 0.001, 0.00001]):
         hrf_sim = _gamma_difference_hrf(1., oversampling=1./dt, time_length=hrf_length+dt,
                                     onset=0., delay=hrf_peak, undershoot=hrf_ushoot,
                                     dispersion=1., u_dispersion=1., ratio=0.167)
-        hrf_sim /= np.linalg.norm(hrf_sim)
         f_hrf_sim = interp1d(x_0, hrf_sim)
 
         paradigm, design, modulation, measurement_time = \
@@ -69,7 +67,7 @@ for sigma_noise in np.array([0.1]): #0.1, 0.001, 0.00001]):
         scale_factor = np.linalg.norm(ys) / np.linalg.norm(noise)
         ys_acquired = ys + noise * scale_factor * sigma_noise
 
-        snr = 20 * (np.log10(np.linalg.norm(ys_acquired) / sigma_noise))
+        snr = 20 * (np.log10(np.linalg.norm(ys) / np.linalg.norm(ys - ys_acquired)))
         print 'SNR = ', snr, ' dB'
 
 
@@ -77,10 +75,9 @@ for sigma_noise in np.array([0.1]): #0.1, 0.001, 0.00001]):
         hrf_model = 'glover'
         hrf_0 = _get_hrf_model(hrf_model, hrf_length=hrf_length + dt,
                                dt=dt, normalize=True)
-        hrf_0 /= np.linalg.norm(hrf_0)
         f_hrf = interp1d(x_0, hrf_0)
         gp = SuperDuperGP(hrf_length=hrf_length, t_r=t_r, oversampling=1./dt, gamma=gamma,
-                    modulation=modulation, fmin_max_iter=fmin_max_iter, sigma_noise=sigma_noise,
+                    modulation=modulation, fmin_max_iter=fmin_max_iter, sigma_noise=1.,
                     time_offset=time_offset, n_iter=n_iter, normalize_y=normalize_y, verbose=True,
                     optimize=optimize, n_restarts_optimizer=n_restarts_optimizer,
                     zeros_extremes=zeros_extremes, f_mean=f_hrf)
@@ -88,6 +85,10 @@ for sigma_noise in np.array([0.1]): #0.1, 0.001, 0.00001]):
          resid_norm_sq,
          sigma_sq_resid) = gp.fit(ys_acquired, paradigm)
         print 'residual norm square = ', resid_norm_sq
+
+        hy *= np.sign(hy[np.argmax(np.abs(hy))]) / np.abs(hy).max()
+        hrf_0 /= hrf_0.max()
+        hrf_sim /= hrf_sim.max()
 
         # Plotting each HRF simulated vs estimated
         if len(range_peak)==5 or len(range_peak)==6:

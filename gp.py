@@ -262,7 +262,7 @@ class SuperDuperGP(BaseEstimator, RegressorMixin):
 
         data_fit = -0.5 * fs.T.dot(alpha)
         model_complexity = -np.log(np.diag(L)).sum()
-        normal_const = -K.shape[0] / 2 * np.log(2 * np.pi)
+        normal_const = -0.5 * K.shape[0] * np.log(2 * np.pi)
         loglikelihood_dims = data_fit + model_complexity + normal_const
         loglikelihood = loglikelihood_dims.sum(-1)
 
@@ -325,10 +325,13 @@ class SuperDuperGP(BaseEstimator, RegressorMixin):
             all_designs.append(design)
             all_betas.append(beta_values)
 
+            if self.verbose:
+                print loglikelihood, self.sigma_noise
+
         residual_norm_squared = ((self.y_train - design.dot(beta_values)) ** 2).sum()
         sigma_squared_resid = residual_norm_squared / (design.shape[0] - design.shape[1])
 
-        print -loglikelihood
+        self.sigma_noise = np.sqrt(sigma_squared_resid)
 
         return loglikelihood, (beta_values,
                                (self.hrf_measurement_points, hrf_values, hrf_var),
@@ -383,7 +386,6 @@ class SuperDuperGP(BaseEstimator, RegressorMixin):
         self.f_mean_ = self.f_mean
         self.f_mean = None
         if self.optimize:
-            # self._fit(self.hrf_kernel.theta)
 
             def obj_func(theta):
                 print theta
@@ -392,27 +394,25 @@ class SuperDuperGP(BaseEstimator, RegressorMixin):
             optima = [(self._constrained_optimization(
                 obj_func, self.hrf_kernel.theta, self.hrf_kernel.bounds))]
 
-        #     # Additional runs are performed from log-uniform chosen initial
-        #     # theta
-        #     if self.n_restarts_optimizer > 0:
-        #         bounds = self.hrf_kernel.bounds
-        #         for i in range(self.n_restarts_optimizer):
-        #             theta_initial = rng.uniform(bounds[:, 0], bounds[:, 1])
-        #             optima.append(self._constrained_optimization(
-        #                 obj_func, theta_initial, bounds))
-        #     # Select the best result
-        #     lm_values = list(map(itemgetter(1), optima))
-        #     self.theta_ = optima[np.argmin(lm_values)][0]
-        #     self.hrf_kernel.theta = self.theta_
-        #     self.log_marginal_likelihood_value_ = -np.min(lm_values)
-
-
-        self.f_mean = self.f_mean_
-        if self.optimize:
-            loglikelihood, output = self._fit(optima[0][0])
+            # Additional runs are performed from log-uniform chosen initial
+            # theta
+            if self.n_restarts_optimizer > 0:
+                bounds = self.hrf_kernel.bounds
+                for i in range(self.n_restarts_optimizer):
+                    theta_initial = rng.uniform(bounds[:, 0], bounds[:, 1])
+                    optima.append(self._constrained_optimization(
+                        obj_func, theta_initial, bounds))
+            # Select the best result
+            # add logic to deal with nan and -inf
+            lm_values = list(map(itemgetter(1), optima))
+            self.theta_ = optima[np.argmin(lm_values)][0]
+            self.hrf_kernel.theta = self.theta_
+            self.log_marginal_likelihood_value_ = -np.min(lm_values)
+            # Refit the model
+            self.f_mean = self.f_mean_
+            loglikelihood, output = self._fit(self.theta_)
         else:
             loglikelihood, output = self._fit(self.hrf_kernel.theta)
-
 
         hrf_measurement_points = np.concatenate(output[1][0])
         order = np.argsort(hrf_measurement_points)
@@ -423,9 +423,9 @@ class SuperDuperGP(BaseEstimator, RegressorMixin):
         residual_norm_squared = output[2][0]
         sigma_squared_resid = output[2][1]
 
-        self.hx_ = hx #[:-2]
-        self.f_hrf_ = hy #[:-2]
-        self.f_hrf_var_ = hrf_var #[:-2]
+        self.hx_ = hx
+        self.f_hrf_ = hy
+        self.f_hrf_var_ = hrf_var
         return (hx, hy, hrf_var, residual_norm_squared, sigma_squared_resid)
 
     def predict(self, ys, paradigm):
@@ -481,6 +481,9 @@ class SuperDuperGP(BaseEstimator, RegressorMixin):
         if convergence_dict["warnflag"] != 0:
             warnings.warn("something happended!: %s " % convergence_dict)
 
+        if self.verbose:
+            print func_min
+
         return theta_opt, func_min
 
 
@@ -524,12 +527,12 @@ if __name__ == '__main__':
     hrf_length = 32
     time_offset = 10
     gamma = 10.
-    fmin_max_iter = 15
+    fmin_max_iter = 10
     n_restarts_optimizer = 0
     n_iter = 3
     normalize_y = False
     optimize = True
-    sigma_noise = 0.1
+    sigma_noise = 5.
     zeros_extremes = True
 
     # Mean function of GP set to a certain HRF model
@@ -539,7 +542,7 @@ if __name__ == '__main__':
     hrf_0 = _get_hrf_model(hrf_model, hrf_length=hrf_length + dt,
                            dt=dt, normalize=True)
     f_hrf = interp1d(x_0, hrf_0)
-    f_hrf = None
+    # f_hrf = None
 
     gp = SuperDuperGP(hrf_length=hrf_length, gamma=gamma,
                       fmin_max_iter=fmin_max_iter, sigma_noise=sigma_noise,
@@ -560,11 +563,17 @@ if __name__ == '__main__':
      resid_norm_sq,
      sigma_sq_resid) = gp.fit(ys_acquired, paradigm)
 
+
+    hy *= np.sign(hy[np.argmax(np.abs(hy))]) / np.abs(hy).max()
+    hrf_0 /= hrf_0.max()
+
     # gp.scorer(ys, ys_acquired, paradigm)
 
     plt.fill_between(hx, hy - 1.96 * np.sqrt(hrf_var),
                      hy + 1.96 * np.sqrt(hrf_var), alpha=0.1)
     plt.plot(hx, hy)
+    plt.plot(x_0, hrf_0)
+
     # plt.axis([0, hrf_length, -0.02, 0.025])
     # plt.axis('tight')
     # plt.show()
