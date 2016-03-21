@@ -3,8 +3,9 @@ import nibabel as nb
 import numpy as np
 from nilearn.input_data import NiftiMasker
 from nistats import experimental_paradigm, design_matrix
-from nistats.glm import FirstLevelGLM
+#from nistats.glm import FirstLevelGLM
 from nilearn.input_data import NiftiMasker
+from nistats import glm
 
 
 # File names and paths. Start from AINSI folder.
