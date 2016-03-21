@@ -77,5 +77,5 @@ plt.plot(x_0, hrf_0)
 ys_pred, matrix, betas, resid = gp.predict(ys, paradigm)
 
 plt.figure()
-plt.plot(ys, 'r')
-plt.plot(ys_pred, 'b')
+plt.plot(ys, 'r', 'acquired')
+plt.plot(ys_pred, 'b', 'predicted')
