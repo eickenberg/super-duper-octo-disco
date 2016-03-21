@@ -14,12 +14,12 @@ from scipy.interpolate import interp1d
 #voxel_fn = op.join(folder, 'Preprocessed', 'voxel92812_min.npy')
 
 folder = 'data_example'
-#voxel_fn = op.join(folder, 'voxel92812_min.npy')
-#voxel_fn = op.join(folder, 'voxel95930_min2.npy')
-#voxel_fn = op.join(folder, 'voxel54246_min3.npy')
-#voxel_fn = op.join(folder, 'voxel3624_min6.npy')
-voxel_fn = op.join(folder, 'audio_voxel272.npy')
-voxel_fn = op.join(folder, 'visual_voxel81.npy')
+voxel_fn = op.join(folder, 'audio_voxel2623.npy')
+voxel_fn = op.join(folder, 'audio_voxel2623_mean7v.npy')
+voxel_fn = op.join(folder, 'audio_voxel2623_mean25v.npy')
+#voxel_fn = op.join(folder, 'visual_voxel81.npy')
+#voxel_fn = op.join(folder, 'visual_voxel81_mean7v.npy')
+#voxel_fn = op.join(folder, 'visual_voxel81_mean25v.npy')
 paradigm_fn = op.join(folder, 'onsets.csv')
 
 # Load data and parameters
