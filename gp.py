@@ -21,7 +21,6 @@ import warnings
 from gp_kernels import HRFKernel
 from operator import itemgetter
 from scipy.interpolate import interp1d
-from nistats.design_matrix import _make_drift
 
 
 ###############################################################################
