@@ -3,9 +3,10 @@ import nibabel as nb
 import numpy as np
 
 from gp import SuperDuperGP, _get_hrf_model
+from nilearn.input_data import NiftiMasker
+from nistats.glm import FirstLevelGLM
 from nistats import experimental_paradigm, design_matrix
 from scipy.interpolate import interp1d
-
 
 #folder = 'AINSI_002'
 #bold_fn = op.join(folder, 'Preprocessed', 's444wuaAINSI 002 EVep2dbolds005a001.nii')
@@ -62,20 +63,44 @@ gp = SuperDuperGP(hrf_length=hrf_length, t_r=t_r, oversampling=1./dt, gamma=gamm
             optimize=optimize, n_restarts_optimizer=n_restarts_optimizer,
             zeros_extremes=zeros_extremes, f_mean=f_hrf)
 (hx, hy, hrf_var, resid_norm_sq, sigma_sq_resid) = gp.fit(ys, paradigm)
-print 'residual norm square = ', resid_norm_sq
-
 hy *= np.sign(hy[np.argmax(np.abs(hy))]) / np.abs(hy).max()
 hrf_0 /= hrf_0.max()
+print 'residual norm square = ', resid_norm_sq
 
-import matplotlib.pyplot as plt
-plt.fill_between(hx, hy - 1.96 * np.sqrt(hrf_var),
-                 hy + 1.96 * np.sqrt(hrf_var), alpha=0.1)
-plt.plot(hx, hy)
-plt.plot(x_0, hrf_0)
+# Testing with a GLM
+mask_img = nb.Nifti1Image(np.ones((2, 2, 2)), affine=np.eye(4))
+masker = NiftiMasker(mask_img=mask_img)
+masker.fit()
+ys2 = np.ones((2, 2, 2, ys.shape[0])) * ys[np.newaxis, np.newaxis, np.newaxis, :]
+niimgs = nb.Nifti1Image(ys2, affine=np.eye(4))
+glm = FirstLevelGLM(mask=mask_img, t_r=t_r, standardize=True, noise_model='ols')
+glm.fit(niimgs, dm)
+norm_resid = (np.linalg.norm(glm.results_[0][0].resid, axis=0)**2).mean()
+ys_pred_glm = glm.results_[0][0].predicted[:, 0]
 
 
+
+# Predict GP
+# XXX: Do we need to predict for GLM???
 ys_pred, matrix, betas, resid = gp.predict(ys, paradigm)
 
-plt.figure()
-plt.plot(ys, 'r', 'acquired')
-plt.plot(ys_pred, 'b', 'predicted')
+
+# Plot HRF
+import matplotlib.pyplot as plt
+plt.figure(1)
+plt.fill_between(hx, hy - 1.96 * np.sqrt(hrf_var),
+                 hy + 1.96 * np.sqrt(hrf_var), alpha=0.1)
+plt.plot(hx, hy, label='estimated HRF')
+plt.plot(x_0, hrf_0, label='glover HRF')
+plt.axis('tight')
+plt.legend()
+
+# Plot predicted signal
+plt.figure(2)
+plt.plot(ys, 'r', label='acquired')
+plt.plot(ys_pred, 'b', label='predicted GP')
+nm = np.abs([ys_pred_glm.max(), ys_pred_glm.min()]).max()
+plt.plot(ys_pred_glm/nm, 'g', label='predicted GLM')
+plt.axis('tight')
+plt.legend()
+plt.show()
