@@ -8,14 +8,10 @@ from nistats.glm import FirstLevelGLM
 from nistats import experimental_paradigm, design_matrix
 from scipy.interpolate import interp1d
 
-folder = 'AINSI_002'
-bold_fn = op.join(folder, 'Preprocessed', 's444wuaAINSI 002 EVep2dbolds005a001.nii')
-mask_fn = op.join(folder, 'Masks', 'visual_small_mask_dilated.nii')
-#voxel_fn = op.join(folder, 'Preprocessed', 'voxel92812_min.npy')
-
-#folder = 'data_example'
-paradigm_fn = op.join('./', 'onsets.csv')
-#paradigm_fn = op.join(folder, 'onsets.csv')
+folder = 'data_example'
+bold_fn = op.join(folder, 's444wuaAINSI 002 EVep2dbolds005a001.nii')
+mask_fn = op.join(folder, 'visual_small_mask_dilated.nii')
+paradigm_fn = op.join(folder, 'onsets.csv')
 
 # Load data and parameters
 niimgs = nb.load(bold_fn)
