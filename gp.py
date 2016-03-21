@@ -258,6 +258,10 @@ class SuperDuperGP(BaseEstimator, RegressorMixin):
             else:
                 return -loglikelihood, mu_m
 
+        if ys.ndim==2 and mu_n.ndim==1:
+            mu_n = mu_n[:, np.newaxis]
+            mu_m = mu_m[:, np.newaxis]
+
         fs = ys - mu_n
         alpha = cho_solve((L, True), fs)        # K^-1 (ys - mu_n)
         mu_bar = K_cross.dot(alpha) + mu_m
@@ -361,7 +365,10 @@ class SuperDuperGP(BaseEstimator, RegressorMixin):
         ys -= drifts.dot(np.linalg.pinv(drifts).dot(ys))
 
         if self.zeros_extremes:
-            ys = np.append(ys, np.array([0., 0.]))
+            if ys.ndim==2:
+                ys = np.append(ys, np.zeros((2, ys.shape[1])), axis=0)
+            else:
+                ys = np.append(ys, np.zeros((2,)), axis=0)
 
         self.y_train = ys
 
