@@ -21,6 +21,7 @@ import warnings
 from gp_kernels import HRFKernel
 from operator import itemgetter
 from scipy.interpolate import interp1d
+from nistats.design_matrix import _make_drift
 
 
 ###############################################################################
@@ -200,7 +201,8 @@ class SuperDuperGP(BaseEstimator, RegressorMixin):
                  drift_order=1, period_cut=64, normalize_y=False, optimize=False,
                  return_var=True, random_state=None, n_restarts_optimizer=3,
                  oversampling=16, drift_model='cosine', zeros_extremes=False,
-                 f_mean=None, min_onset=-24, verbose=True, modulation=None):
+                 f_mean=None, min_onset=-24, verbose=True, modulation=None,
+                 order=1):
         self.t_r = t_r
         self.hrf_length = hrf_length
         self.time_offset = time_offset
@@ -223,6 +225,7 @@ class SuperDuperGP(BaseEstimator, RegressorMixin):
         self.verbose = verbose
         self.n_restarts_optimizer = n_restarts_optimizer
         self.modulation = modulation
+        self.order = order
 
     def _get_hrf_values_from_betas(self, ys, beta_values, beta_indices, etas,
                                    pre_cov, pre_cross_cov, pre_mu_n,
@@ -349,6 +352,14 @@ class SuperDuperGP(BaseEstimator, RegressorMixin):
             ys = ys - self.y_train_mean
         else:
             self.y_train_mean = np.zeros(1)
+
+        # Removing the drifts
+        names, onsets, durations, modulation = check_paradigm(paradigm)
+        frame_times = np.arange(0, onsets.max() + self.time_offset, self.t_r)
+        drifts, dnames = _make_drift(self.drift_model, frame_times, self.order,
+                                     self.period_cut)
+
+        ys -= drifts.dot(np.linalg.pinv(drifts).dot(ys))
 
         if self.zeros_extremes:
             ys = np.append(ys, np.array([0., 0.]))

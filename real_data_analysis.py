@@ -47,9 +47,9 @@ f_hrf = interp1d(x_0, hrf_0)
 
 # GP parameters
 time_offset = 10
-gamma = 10.0
-fmin_max_iter = 10
-n_restarts_optimizer = 5
+gamma = 10.
+fmin_max_iter = 20
+n_restarts_optimizer = 10
 n_iter = 3
 normalize_y = False
 optimize = True
@@ -64,3 +64,11 @@ gp = SuperDuperGP(hrf_length=hrf_length, t_r=t_r, oversampling=1./dt, gamma=gamm
 (hx, hy, hrf_var, resid_norm_sq, sigma_sq_resid) = gp.fit(ys, paradigm)
 print 'residual norm square = ', resid_norm_sq
 
+hy *= np.sign(hy[np.argmax(np.abs(hy))]) / np.abs(hy).max()
+hrf_0 /= hrf_0.max()
+
+import matplotlib.pyplot as plt
+plt.fill_between(hx, hy - 1.96 * np.sqrt(hrf_var),
+                 hy + 1.96 * np.sqrt(hrf_var), alpha=0.1)
+plt.plot(hx, hy)
+plt.plot(x_0, hrf_0)
