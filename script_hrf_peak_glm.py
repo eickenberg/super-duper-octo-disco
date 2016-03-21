@@ -28,8 +28,10 @@ dt = 0.1
 x_0 = np.arange(0, hrf_length  + dt, dt)
 
 n_x, n_y, n_z = 20, 20, 20
-event_types = ['ev1', 'ev2']
-n_events = 100
+#event_types = ['ev1', 'ev2']
+event_types = ['evt_1', 'evt_2', 'evt_3', 'evt_4', 'evt_5', 'evt_6']
+#n_events = 100
+n_events = 200
 n_blank_events = 50
 event_spacing = 6
 jitter_min, jitter_max = -1, 1
@@ -40,6 +42,7 @@ sigma = 2
 threshold = 0.7
 period_cut = 512
 drift_order = 1
+
 
 mask_img = nb.Nifti1Image(np.ones((n_x, n_y, n_z)), affine=np.eye(4))
 masker = NiftiMasker(mask_img=mask_img)
@@ -54,7 +57,7 @@ hrf_ushoot = 16.
 norm_resid = np.zeros((len(peak_range), len(peak_range)))
 i = 0
 
-for sigma_noise in np.array([10., 1., 0.1, 0.001, 0.00001, 0.0000001]):
+for sigma_noise in np.array([2., 10., 0.01]):
 
     for isim, hrf_peak_sim in enumerate(peak_range_sim):
 
@@ -106,7 +109,7 @@ for sigma_noise in np.array([10., 1., 0.1, 0.001, 0.00001, 0.0000001]):
             print 'SNR = ', snr_db.mean(), ' dB'
 
             print glm.results_[0][0].norm_resid.mean()
-            norm_resid[isim, iest] = np.linalg.norm(glm.results_[0][0].resid, axis=0).mean()
+            norm_resid[isim, iest] = (np.linalg.norm(glm.results_[0][0].resid, axis=0)**2).mean()
 
 
     if not op.exists(fig_folder): os.makedirs(fig_folder)

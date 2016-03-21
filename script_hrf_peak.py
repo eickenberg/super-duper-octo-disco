@@ -29,6 +29,7 @@ dt = 0.1
 x_0 = np.arange(0, hrf_length  + dt, dt)
 hrf_ushoot = 16.
 
+
 # GP parameters
 time_offset = 10
 gamma = 3.0
@@ -36,13 +37,17 @@ fmin_max_iter = 20
 n_restarts_optimizer = 0
 n_iter = 3
 normalize_y = False
-optimize = False
+optimize = True
 zeros_extremes = True
 
-range_peak = np.arange(2, 8)
+#range_peak = np.arange(2, 8)
+range_peak = np.array([3, 8])
 
-for sigma_noise in np.array([2., 1., 0.5, 0.1, 0.01]):
-    plt.figure(figsize=(12, 8))
+for sigma_noise in np.array([2., 0.01]):
+    if len(range_peak)==2:
+        plt.figure(figsize=(8, 4))
+    else:
+        plt.figure(figsize=(12, 8))
     i = 0
 
     for hrf_peak in range_peak:
