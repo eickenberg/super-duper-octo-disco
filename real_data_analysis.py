@@ -72,3 +72,10 @@ plt.fill_between(hx, hy - 1.96 * np.sqrt(hrf_var),
                  hy + 1.96 * np.sqrt(hrf_var), alpha=0.1)
 plt.plot(hx, hy)
 plt.plot(x_0, hrf_0)
+
+
+ys_pred, matrix, betas, resid = gp.predict(ys, paradigm)
+
+plt.figure()
+plt.plot(ys, 'r')
+plt.plot(ys_pred, 'b')
