@@ -47,7 +47,7 @@ f_hrf = interp1d(x_0, hrf_0)
 
 # GP parameters
 time_offset = 10
-gamma = 10.
+gamma = 3.
 fmin_max_iter = 20
 n_restarts_optimizer = 10
 n_iter = 3
@@ -77,5 +77,7 @@ plt.plot(x_0, hrf_0)
 ys_pred, matrix, betas, resid = gp.predict(ys, paradigm)
 
 plt.figure()
-plt.plot(ys, 'r', 'acquired')
-plt.plot(ys_pred, 'b', 'predicted')
+plt.plot(ys, 'r', label='acquired')
+plt.plot(ys_pred, 'b', label='predicted')
+plt.legend()
+

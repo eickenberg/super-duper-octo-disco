@@ -296,7 +296,7 @@ class SuperDuperGP(BaseEstimator, RegressorMixin):
         if any(index):
             theta = self.hrf_kernel.bounds[:, 0]
 
-        kernel = self.hrf_kernel.clone_with_theta(theta)
+        kernel.theta = theta
 
         # Getting eta weighted matrices
         pre_cov, pre_cross_cov, pre_mean_n, pre_mean_m, K_22 = \
