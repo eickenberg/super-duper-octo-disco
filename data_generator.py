@@ -116,7 +116,7 @@ def make_design_matrix_hrf(
         names = np.append(names, np.unique(names0))
         hrf_measurement_points, _, _, beta_indices, _ = \
                     _get_hrf_measurements(paradigm, hrf_length=hrf_length,
-                              t_r=t_r, time_offset=time_offset)
+                                          t_r=t_r, time_offset=time_offset, frame_times=frame_times)
         hrf_measurement_points = np.concatenate(hrf_measurement_points)
         hrf_measures = f_hrf(hrf_measurement_points)
         matrix = _get_design_from_hrf_measures(hrf_measures, beta_indices)

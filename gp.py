@@ -42,7 +42,7 @@ def _get_design_from_hrf_measures(hrf_measures, beta_indices):
 
 
 def _get_hrf_measurements(paradigm, modulation=None, hrf_length=32., t_r=2,
-                          time_offset=10, zeros_extremes=False):
+                          time_offset=10, zeros_extremes=False, frame_times=None):
     """This function:
     Parameters
     ----------
@@ -65,7 +65,8 @@ def _get_hrf_measurements(paradigm, modulation=None, hrf_length=32., t_r=2,
     else:
        names, onsets, durations, _ = check_paradigm(paradigm)
 
-    frame_times = np.arange(0, onsets.max() + time_offset, t_r)
+    if frame_times is not None:
+        frame_times = np.arange(0, onsets.max() + time_offset, t_r)
 
     time_differences = frame_times[:, np.newaxis] - onsets
     scope_masks = (time_differences > 0) & (time_differences < hrf_length)
@@ -345,7 +346,7 @@ class SuperDuperGP(BaseEstimator, RegressorMixin):
                                all_hrf_values, all_designs, all_betas)
 
 
-    def fit(self, ys, paradigm, initial_beta=None):
+    def fit(self, ys,OB paradigm, initial_beta=None):
 
         rng = check_random_state(self.random_state)
 
