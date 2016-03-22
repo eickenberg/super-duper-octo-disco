@@ -346,7 +346,7 @@ class SuperDuperGP(BaseEstimator, RegressorMixin):
                                all_hrf_values, all_designs, all_betas)
 
 
-    def fit(self, ys,OB paradigm, initial_beta=None):
+    def fit(self, ys, paradigm, initial_beta=None):
 
         rng = check_random_state(self.random_state)
 
