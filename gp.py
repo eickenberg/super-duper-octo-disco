@@ -65,7 +65,7 @@ def _get_hrf_measurements(paradigm, modulation=None, hrf_length=32., t_r=2,
     else:
        names, onsets, durations, _ = check_paradigm(paradigm)
 
-    if frame_times is not None:
+    if frame_times is None:
         frame_times = np.arange(0, onsets.max() + time_offset, t_r)
 
     time_differences = frame_times[:, np.newaxis] - onsets
