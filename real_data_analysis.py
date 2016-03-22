@@ -15,8 +15,8 @@ from scipy.interpolate import interp1d
 
 folder = 'data_example'
 voxel_fn = op.join(folder, 'audio_voxel2623.npy')
-voxel_fn = op.join(folder, 'audio_voxel2623_mean7v.npy')
-voxel_fn = op.join(folder, 'audio_voxel2623_mean25v.npy')
+#voxel_fn = op.join(folder, 'audio_voxel2623_mean7v.npy')
+#voxel_fn = op.join(folder, 'audio_voxel2623_mean25v.npy')
 #voxel_fn = op.join(folder, 'visual_voxel81.npy')
 #voxel_fn = op.join(folder, 'visual_voxel81_mean7v.npy')
 #voxel_fn = op.join(folder, 'visual_voxel81_mean25v.npy')
