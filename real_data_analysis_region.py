@@ -9,7 +9,7 @@ from nistats import experimental_paradigm, design_matrix
 from scipy.interpolate import interp1d
 
 folder = 'data_example'
-bold_fn = op.join(folder, 's444wuaAINSI 002 EVep2dbolds005a001.nii')
+bold_fn = op.join(folder, 's444wuaAINSI_002_EVep2dbolds005a001.nii')
 mask_fn = op.join(folder, 'visual_small_mask_dilated.nii')
 paradigm_fn = op.join(folder, 'onsets.csv')
 

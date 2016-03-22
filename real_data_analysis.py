@@ -8,24 +8,23 @@ from nistats.glm import FirstLevelGLM
 from nistats import experimental_paradigm, design_matrix
 from scipy.interpolate import interp1d
 
-#folder = 'AINSI_002'
-#bold_fn = op.join(folder, 'Preprocessed', 's444wuaAINSI 002 EVep2dbolds005a001.nii')
-#mask_fn = op.join(folder, 'Masks', 'visual_small_mask_dilated.nii')
-#voxel_fn = op.join(folder, 'Preprocessed', 'voxel92812_min.npy')
-
 folder = 'data_example'
-#voxel_fn = op.join(folder, 'voxel92812_min.npy')
-#voxel_fn = op.join(folder, 'voxel95930_min2.npy')
-#voxel_fn = op.join(folder, 'voxel54246_min3.npy')
-#voxel_fn = op.join(folder, 'voxel3624_min6.npy')
-voxel_fn = op.join(folder, 'audio_voxel272.npy')
-voxel_fn = op.join(folder, 'visual_voxel81.npy')
+
+# AUDIO region voxel, and mean over 7 or 25 voxels around
+voxel_fn = op.join(folder, 'audio_voxel2623.npy')
+#voxel_fn = op.join(folder, 'audio_voxel2623_mean7v.npy')
+#voxel_fn = op.join(folder, 'audio_voxel2623_mean25v.npy')
+
+# VISUAL region voxel, and mean over 7 or 25 voxels around
+#voxel_fn = op.join(folder, 'visual_voxel81.npy')
+#voxel_fn = op.join(folder, 'visual_voxel81_mean7v.npy')
+#voxel_fn = op.join(folder, 'visual_voxel81_mean25v.npy')
+
+# Paradigm file
 paradigm_fn = op.join(folder, 'onsets.csv')
 
+
 # Load data and parameters
-#niimgs = nb.load(bold_fn)
-#bold_data = niimgs.get_data()
-#n_scans = bold_data.shape[3]
 n_scans = 144
 t_r = 3.
 ys = np.load(voxel_fn)
@@ -77,7 +76,6 @@ glm = FirstLevelGLM(mask=mask_img, t_r=t_r, standardize=True, noise_model='ols')
 glm.fit(niimgs, dm)
 norm_resid = (np.linalg.norm(glm.results_[0][0].resid, axis=0)**2).mean()
 ys_pred_glm = glm.results_[0][0].predicted[:, 0]
-
 
 
 # Predict GP
