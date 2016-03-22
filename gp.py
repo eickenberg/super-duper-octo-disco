@@ -12,183 +12,14 @@ from nistats.experimental_paradigm import check_paradigm
 from sklearn.utils.validation import check_is_fitted
 from scipy.optimize import fmin_l_bfgs_b
 from scipy.linalg import (cholesky, cho_solve, solve_triangular, LinAlgError)
-from nistats.design_matrix import (make_design_matrix, full_rank, _make_drift)
-from nistats.hemodynamic_models import (spm_hrf, glover_hrf, _resample_regressor,
-                                        _gamma_difference_hrf)
-from hrf import bezier_hrf, physio_hrf
-from paradigm import _sample_condition
 import warnings
 from gp_kernels import HRFKernel
 from operator import itemgetter
 from scipy.interpolate import interp1d
-
-
-###############################################################################
-# HRF utils
-###############################################################################
-def _get_design_from_hrf_measures(hrf_measures, beta_indices):
-    event_names = np.unique(np.concatenate(beta_indices)).astype('int')
-
-    design = np.zeros([len(beta_indices), len(event_names)])
-    pointer = 0
-
-    for beta_ind, row in zip(beta_indices, design):
-        measures = hrf_measures[pointer:pointer + len(beta_ind)]
-        for i, name in enumerate(event_names):
-            row[i] = measures[beta_ind == name].sum()
-
-        pointer += len(beta_ind)
-    return design
-
-
-def _get_hrf_measurements(paradigm, modulation=None, hrf_length=32., t_r=2,
-                          time_offset=10, zeros_extremes=False, frame_times=None):
-    """This function:
-    Parameters
-    ----------
-    paradigm : paradigm type
-    hrf_length : float
-    t_r : float
-    time_offset : float
-    zeros_extremes : bool
-
-    Returns
-    -------
-    hrf_measurement_points : list of list
-    visible events : list of list
-    etas : list of list
-    beta_indices : list of list
-    unique_events : array-like
-    """
-    if modulation is None:
-        names, onsets, durations, modulation = check_paradigm(paradigm)
-    else:
-       names, onsets, durations, _ = check_paradigm(paradigm)
-
-    if frame_times is None:
-        frame_times = np.arange(0, onsets.max() + time_offset, t_r)
-
-    time_differences = frame_times[:, np.newaxis] - onsets
-    scope_masks = (time_differences > 0) & (time_differences < hrf_length)
-    belong_to_measurement, which_event = np.where(scope_masks)
-
-    unique_events, event_type_indices = np.unique(names, return_inverse=True)
-
-    if zeros_extremes:
-        lft = len(frame_times) + 2
-    else:
-        lft = len(frame_times)
-    hrf_measurement_points = [list() for _ in range(lft)]
-    etas = [list() for _ in range(lft)]
-    beta_indices = [list() for _ in range(lft)]
-    visible_events = [list() for _ in range(lft)]
-
-    for frame_id, event_id in zip(belong_to_measurement, which_event):
-        hrf_measurement_points[frame_id].append(time_differences[frame_id,
-                                                                 event_id])
-        etas[frame_id].append(modulation[event_id])
-        beta_indices[frame_id].append(event_type_indices[event_id])
-        visible_events[frame_id].append(event_id)
-
-    if zeros_extremes:
-        # we add first and last point of the hrf
-        hrf_measurement_points[frame_id + 1].append(0.)
-        etas[frame_id + 1].append(modulation[event_id])
-        beta_indices[frame_id + 1].append(event_type_indices[event_id])
-        visible_events[frame_id + 1].append(event_id)
-        hrf_measurement_points[frame_id + 2].append(hrf_length)
-        etas[frame_id + 2].append(modulation[event_id])
-        beta_indices[frame_id + 2].append(event_type_indices[event_id])
-        visible_events[frame_id + 2].append(event_id)
-
-    return (hrf_measurement_points, visible_events, etas, beta_indices,
-            unique_events)
-
-
-def _get_hrf_model(hrf_model=None, hrf_length=25., dt=1., normalize=False):
-    """Returns HRF created with model hrf_model. If hrf_model is None,
-    then a vector of 0 is returned
-
-    Parameters
-    ----------
-    hrf_model: str
-    hrf_length: float
-    dt: float
-    normalize: bool
-
-    Returns
-    -------
-    hrf_0: hrf
-    """
-    if hrf_model == 'glover':
-        hrf_0 = glover_hrf(tr=1., oversampling=1./dt, time_length=hrf_length)
-    elif hrf_model == 'spm':
-        hrf_0 = spm_hrf(tr=1., oversampling=1./dt, time_length=hrf_length)
-    elif hrf_model == 'gamma':
-        hrf_0 = _gamma_difference_hrf(1., oversampling=1./dt, time_length=hrf_length,
-                                      onset=0., delay=6, undershoot=16., dispersion=1.,
-                                      u_dispersion=1., ratio=0.167)
-    elif hrf_model == 'bezier':
-        # Bezier curves. We can indicate where is the undershoot and the peak etc
-        hrf_0 = bezier_hrf(hrf_length=hrf_length, dt=dt, pic=[6,1], picw=2,
-                           ushoot=[15,-0.2], ushootw=3, normalize=normalize)
-    elif hrf_model == 'physio':
-        # Balloon model. By default uses the parameters of Khalidov11
-        hrf_0 = physio_hrf(hrf_length=hrf_length, dt=dt, normalize=normalize)
-    else:
-        # Mean 0 if no hrf_model is specified
-        hrf_0 = np.zeros(hrf_length/dt)
-        warnings.warn("The HRF model is not recognized, setting it to None")
-    if normalize and hrf_model is not None:
-        hrf_0 = hrf_0 / np.linalg.norm(hrf_0)
-    return hrf_0
-
-
-###############################################################################
-#
-###############################################################################
-def compute_regressor(f_hrf, exp_condition, frame_times, oversampling,
-                      min_onset, con_id='cond'):
-
-    n_samples = f_hrf.shape[0]
-    base_sampling = int(np.ceil(n_samples / 16.))
-
-    # high resolution hrf
-    hkernel = [f_hrf[:: int(base_sampling / oversampling)]]
-
-    hr_regressor, hr_frame_times = _sample_condition(
-        exp_condition, frame_times, oversampling, min_onset=min_onset)
-
-    conv_reg = np.array([np.convolve(hr_regressor, h)[:hr_regressor.size]
-                                                    for h in hkernel])
-    computed_regressors = _resample_regressor(
-                conv_reg, hr_frame_times, frame_times)
-
-    return computed_regressors, con_id
-
-
-def convolve_regressors(paradigm, f_hrf, frame_times, oversampling,
-                        min_onset=-24):
-    name, onset, duration, modulation = check_paradigm(paradigm)
-    regressor_names = []
-    regressor_matrix = None
-    for condition in np.unique(paradigm.name):
-        condition_mask = (name == condition)
-        exp_condition = (onset[condition_mask],
-                         duration[condition_mask],
-                         modulation[condition_mask])
-        reg, names = compute_regressor(f_hrf, exp_condition=exp_condition,
-                                       frame_times=frame_times,
-                                       con_id=condition, min_onset=min_onset,
-                                       oversampling=oversampling)
-        regressor_names.append(names)
-        if regressor_matrix is None:
-            regressor_matrix = reg
-        else:
-            regressor_matrix = np.hstack((regressor_matrix, reg))
-
-    return regressor_matrix, regressor_names
-
+from data_generator import (make_design_matrix_hrf, _get_hrf_model,
+                            _get_design_from_hrf_measures,
+                            _get_hrf_measurements)
+from nistats.design_matrix import (_make_drift)
 
 ###############################################################################
 #
@@ -202,7 +33,7 @@ class SuperDuperGP(BaseEstimator, RegressorMixin):
                  return_var=True, random_state=None, n_restarts_optimizer=3,
                  oversampling=16, drift_model='cosine', zeros_extremes=False,
                  f_mean=None, min_onset=-24, verbose=True, modulation=None,
-                 order=1):
+                 order=1, remove_difts=True):
         self.t_r = t_r
         self.hrf_length = hrf_length
         self.time_offset = time_offset
@@ -226,6 +57,7 @@ class SuperDuperGP(BaseEstimator, RegressorMixin):
         self.n_restarts_optimizer = n_restarts_optimizer
         self.modulation = modulation
         self.order = order
+        self.remove_difts = remove_difts
 
     def _get_hrf_values_from_betas(self, ys, beta_values, beta_indices, etas,
                                    pre_cov, pre_cross_cov, pre_mu_n,
@@ -336,8 +168,10 @@ class SuperDuperGP(BaseEstimator, RegressorMixin):
                 print loglikelihood, self.sigma_noise
 
         residual_norm_squared = ((self.y_train - design.dot(beta_values)) ** 2).sum()
-        sigma_squared_resid = residual_norm_squared / (design.shape[0] - design.shape[1])
+        sigma_squared_resid = \
+            residual_norm_squared / (design.shape[0] - design.shape[1])
 
+        # XXX this is going to be removed, only if we can split the data
         self.sigma_noise = np.sqrt(sigma_squared_resid)
 
         return loglikelihood, (beta_values,
@@ -358,12 +192,13 @@ class SuperDuperGP(BaseEstimator, RegressorMixin):
             self.y_train_mean = np.zeros(1)
 
         # Removing the drifts
-        names, onsets, durations, modulation = check_paradigm(paradigm)
-        frame_times = np.arange(0, onsets.max() + self.time_offset, self.t_r)
-        drifts, dnames = _make_drift(self.drift_model, frame_times, self.order,
-                                     self.period_cut)
+        if self.remove_difts:
+            names, onsets, durations, modulation = check_paradigm(paradigm)
 
-        ys -= drifts.dot(np.linalg.pinv(drifts).dot(ys))
+            frame_times = np.arange(0, onsets.max() + self.time_offset, self.t_r)
+            drifts, dnames = _make_drift(self.drift_model, frame_times,
+                                         self.order, self.period_cut)
+            ys -= drifts.dot(np.linalg.pinv(drifts).dot(ys))
 
         if self.zeros_extremes:
             if ys.ndim==2:
@@ -377,7 +212,8 @@ class SuperDuperGP(BaseEstimator, RegressorMixin):
         hrf_measurement_points, visible_events, etas, beta_indices, unique_events = \
             _get_hrf_measurements(paradigm, hrf_length=self.hrf_length,
                                   t_r=self.t_r, time_offset=self.time_offset,
-                                  zeros_extremes=self.zeros_extremes)
+                                  zeros_extremes=self.zeros_extremes,
+                                  frame_times=frame_times)
         if initial_beta is None:
             initial_beta = np.ones(len(unique_events))
 
@@ -442,40 +278,35 @@ class SuperDuperGP(BaseEstimator, RegressorMixin):
         sigma_squared_resid = output[2][1]
 
         self.hx_ = hx
-        self.f_hrf_ = hy
-        self.f_hrf_var_ = hrf_var
+        self.hrf_ = hy
+        self.hrf_var_ = hrf_var
         return (hx, hy, hrf_var, residual_norm_squared, sigma_squared_resid)
 
     def predict(self, ys, paradigm):
         """
         """
-        check_is_fitted(self, "f_hrf_")
+        check_is_fitted(self, "hrf_")
         names, onsets, durations, modulation = check_paradigm(paradigm)
         exp_condition = (onsets, durations, modulation)
+
         frame_times = np.arange(0, onsets.max() + self.time_offset, self.t_r)
 
-        matrix, names = convolve_regressors(paradigm, f_hrf=self.f_hrf_,
-                                            frame_times=frame_times,
-                                            oversampling=self.oversampling,
-                                            min_onset=self.min_onset)
-        # ADD drifts
-        drift, dnames = _make_drift(drift_model=self.drift_model.lower(),
-                                    frame_times=frame_times,
-                                    order=self.drift_order,
-                                    period_cut=self.period_cut)
+        f_hrf = interp1d(self.hx_, self.hrf_)
 
-        matrix = np.hstack((matrix, drift))
-        names.append(dnames)
-
-        # Force the design matrix to be full rank at working precision
-        matrix, _ = full_rank(matrix)
+        dm = make_design_matrix_hrf(frame_times, paradigm,
+                                    hrf_length=self.hrf_length,
+                                    t_r=self.t_r, time_offset=self.time_offset,
+                                    drift_model=self.drift_model,
+                                    period_cut=self.period_cut,
+                                    drift_order=self.drift_order,
+                                    f_hrf=f_hrf)
         # Least squares estimation
-        beta_values = np.linalg.pinv(matrix).dot(ys)
-        ys_fit = matrix.dot(beta_values)
+        beta_values = np.linalg.pinv(dm).dot(ys)
+        ys_fit = dm.dot(beta_values)
         # ress
         ress = ys - ys_fit
 
-        return ys_fit, matrix, beta_values, ress
+        return ys_fit, dm, beta_values, ress
 
     def scorer(self, ys_true, ys_test, paradigm):
         """Please put here the scorer
@@ -550,7 +381,7 @@ if __name__ == '__main__':
     n_iter = 3
     normalize_y = False
     optimize = True
-    sigma_noise = 5.
+    sigma_noise = .1
     zeros_extremes = True
 
     # Mean function of GP set to a certain HRF model
@@ -585,7 +416,7 @@ if __name__ == '__main__':
     hy *= np.sign(hy[np.argmax(np.abs(hy))]) / np.abs(hy).max()
     hrf_0 /= hrf_0.max()
 
-    # gp.scorer(ys, ys_acquired, paradigm)
+    ys_pred, _, _, _ = gp.predict(ys, paradigm)
 
     plt.fill_between(hx, hy - 1.96 * np.sqrt(hrf_var),
                      hy + 1.96 * np.sqrt(hrf_var), alpha=0.1)

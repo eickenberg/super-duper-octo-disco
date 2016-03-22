@@ -11,14 +11,14 @@ from scipy.interpolate import interp1d
 folder = 'data_example'
 
 # AUDIO region voxel, and mean over 7 or 25 voxels around
-voxel_fn = op.join(folder, 'audio_voxel2623.npy')
-#voxel_fn = op.join(folder, 'audio_voxel2623_mean7v.npy')
-#voxel_fn = op.join(folder, 'audio_voxel2623_mean25v.npy')
+# voxel_fn = op.join(folder, 'audio_voxel2623.npy')
+# voxel_fn = op.join(folder, 'audio_voxel2623_mean7v.npy')
+voxel_fn = op.join(folder, 'audio_voxel2623_mean25v.npy')
 
 # VISUAL region voxel, and mean over 7 or 25 voxels around
-#voxel_fn = op.join(folder, 'visual_voxel81.npy')
-#voxel_fn = op.join(folder, 'visual_voxel81_mean7v.npy')
-#voxel_fn = op.join(folder, 'visual_voxel81_mean25v.npy')
+# voxel_fn = op.join(folder, 'visual_voxel81.npy')
+# voxel_fn = op.join(folder, 'visual_voxel81_mean7v.npy')
+# voxel_fn = op.join(folder, 'visual_voxel81_mean25v.npy')
 
 # Paradigm file
 paradigm_fn = op.join(folder, 'onsets.csv')
@@ -82,6 +82,10 @@ ys_pred_glm = glm.results_[0][0].predicted[:, 0]
 # XXX: Do we need to predict for GLM???
 ys_pred, matrix, betas, resid = gp.predict(ys, paradigm)
 
+corr_gp = np.corrcoef(ys_pred, ys)[1, 0]
+corr_glm = np.corrcoef(ys_pred_glm, ys)[1, 0]
+
+print "corr glm: %s, corr gp: %s" % (corr_glm, corr_gp)
 
 # Plot HRF
 import matplotlib.pyplot as plt
