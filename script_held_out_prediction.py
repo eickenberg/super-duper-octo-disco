@@ -38,7 +38,7 @@ paradigms, _, _, measurement_times = list(zip(*[
 
 rng = np.random.RandomState(42)
 
-noise_levels = np.array([1., .1, 2., .01, 10.])
+noise_levels = np.array([1., .1, 2., .01, 10., 0., 100.])
 
 beta = rng.randn(len(event_types))
 
@@ -48,17 +48,55 @@ new_betas = rng.randn(len(event_types), n_new_betas) # these are to see how well
 frame_times_run = np.arange(0, paradigms[0]['onset'].max() + time_offset, t_r)
 
 n_noises = 4
-noise_vectors = [rng.randn(len(frame_times), n_noises) for _ in range(n_runs)]
+noise_vectors = [rng.randn(len(frame_times_run), n_noises) for _ in range(n_runs)]
 noise_vectors = [noise_vector / np.linalg.norm(noise_vector, axis=0)
                  for noise_vector in noise_vectors]
 
+train_gen_train_est = np.zeros(
+    (len(hrf_peak_locations),
+     len(hrf_peak_locations),
+     n_runs,
+     n_noises * len(noise_levels)))
+train_gen_train_gen = np.zeros(
+    (len(hrf_peak_locations),
+     n_runs,
+     n_noises * len(noise_levels)))
+
+train_gen_test_est = np.zeros(
+    (len(hrf_peak_locations),
+     len(hrf_peak_locations),
+     n_runs,
+     n_noises * len(noise_levels)))
+train_gen_test_gen = np.zeros(
+    (len(hrf_peak_locations),
+     n_runs,
+     n_noises * len(noise_levels)))
+
+test_est_test_est = np.zeros(
+    (len(hrf_peak_locations),
+     len(hrf_peak_locations),
+     n_runs,
+     n_new_betas))
+
+train_signal_norm = np.zeros(
+    (len(hrf_peak_locations),
+     n_runs,
+     n_noises * len(noise_levels)))
+test_signal_norm = np.zeros(
+    (len(hrf_peak_locations),
+     n_runs,
+     n_noises * len(noise_levels)))
+new_test_signal_norm = np.zeros(
+    (len(hrf_peak_locations),
+     n_runs,
+     n_new_betas))
 
 
-for simulation_peak in hrf_peak_locations:
+for i_sim, simulation_peak in enumerate(hrf_peak_locations):
     simulation_hrf = _gamma_difference_hrf(tr=1., oversampling=20,
                                            time_length=hrf_length,
                                            undershoot=16., delay=simulation_peak)
-    xs = np.linspace(0., hrf_length, len(estimation_hrf), endpoint=False)
+    xs = np.linspace(0., hrf_length, len(simulation_hrf), endpoint=False)
     f_sim_hrf = interp1d(xs, simulation_hrf)
     for held_out_index in range(n_runs):
         shifted_paradigms =  [paradigm.copy() 
@@ -87,26 +125,35 @@ for simulation_peak in hrf_peak_locations:
         # design matrix dataframes
         train_design_gen_df = make_design_matrix_hrf(shifted_frame_times,
                                                      train_paradigm, f_hrf=f_sim_hrf)
+        test_design_gen_df = make_design_matrix_hrf(frame_times_run,
+                                                     test_paradigm, f_hrf=f_sim_hrf)
         # design matrix without drifts
         train_design_gen = train_design_gen_df[event_types].values
+        test_design_gen = test_design_gen_df[event_types].values
         y_train_clean = train_design_gen.dot(beta)
         y_train_norm = np.linalg.norm(y_train_clean) ** 2
-        y_train_noisy = y_train_clean + np.linalg.norm(y_train_clean) * scaled_train_noise
+        y_train_noisy = y_train_clean[:, np.newaxis] + np.linalg.norm(y_train_clean) * scaled_train_noise
         y_train_noisy_norm = np.linalg.norm(y_train_noisy, axis=0) ** 2
+        train_signal_norm[i_sim, held_out_index, :] = y_train_noisy_norm
 
         y_test = test_design_gen.dot(beta)
-        y_test_new = test_design_gen.dot(beta_new)
+        y_test_new = test_design_gen.dot(new_betas)
 
         y_test_norm = np.linalg.norm(y_test) ** 2
         y_test_new_norm = np.linalg.norm(y_test_new, axis=0) ** 2
 
+        test_signal_norm[i_sim, held_out_index, :] = y_test_norm
+        new_test_signal_norm[i_sim, held_out_index, :] = y_test_new_norm
+
         beta_hat_gen = np.linalg.pinv(train_design_gen).dot(y_train_noisy)
         train_gen_resid = np.linalg.norm(y_train_noisy -
                                          train_design_gen.dot(beta_hat_gen), axis=0) ** 2
+        train_gen_train_gen[i_sim, held_out_index, :] = train_gen_resid
         y_pred_gen = test_design_gen.dot(beta_hat_gen)
-        test_gen_resid = np.linalg.norm(y_test - y_pred_gen) ** 2
-        for estimation_peak in hrf_peak_locations:
-
+        test_gen_resid = np.linalg.norm(y_test[:, np.newaxis] - y_pred_gen) ** 2
+        train_gen_test_gen[i_sim, held_out_index, :] = test_gen_resid
+        for i_est, estimation_peak in enumerate(hrf_peak_locations):
+            print("Generation peak {} Estimation peak {} Fold {}".format(simulation_peak, estimation_peak, held_out_index))
             estimation_hrf = _gamma_difference_hrf(tr=1., oversampling=20,
                                                    time_length=hrf_length,
                                                    undershoot=16, delay=estimation_peak)
@@ -114,15 +161,21 @@ for simulation_peak in hrf_peak_locations:
             # design matrix dataframes
             train_design_est_df = make_design_matrix_hrf(shifted_frame_times,
                                                          train_paradigm, f_hrf=f_est_hrf)
+            test_design_est_df = make_design_matrix_hrf(frame_times_run,
+                                                         test_paradigm, f_hrf=f_est_hrf)
             # design matrix without drifts
             train_design_est = train_design_est_df[event_types].values
+            test_design_est = test_design_est_df[event_types].values
 
             beta_hat_est = np.linalg.pinv(train_design_est).dot(y_train_noisy)
             train_est_resid = np.linalg.norm(y_train_noisy -
                                              train_design_est.dot(beta_hat_est), axis=0) ** 2
+            train_gen_train_est[i_sim, i_est, held_out_index, :] = train_est_resid
             y_pred_est = test_design_est.dot(beta_hat_est)
 
-            test_est_resid = np.linalg.norm(y_test - y_pred_test) ** 2
+            test_est_resid = np.linalg.norm(y_test[:, np.newaxis] - y_pred_est, axis=0) ** 2
+            train_gen_test_est[i_sim, i_est, held_out_index, :] = test_est_resid
 
             y_test_squashed = test_design_est.dot(np.linalg.pinv(test_design_est).dot(y_test))
-            
+            test_squashed_resid = np.linalg.norm(y_test - y_test_squashed, axis=0) ** 2
+            test_est_test_est[i_sim, i_est, held_out_index, :] = test_squashed_resid
