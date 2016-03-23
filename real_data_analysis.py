@@ -11,9 +11,13 @@ from scipy.interpolate import interp1d
 folder = 'data_example'
 
 # AUDIO region voxel, and mean over 7 or 25 voxels around
-voxel_fn = op.join(folder, 'audio_voxel2623.npy')
+#voxel_fn = op.join(folder, 'audio_voxel2623.npy')
 #voxel_fn = op.join(folder, 'audio_voxel2623_mean7v.npy')
-# voxel_fn = op.join(folder, 'audio_voxel2623_mean25v.npy')
+#voxel_fn = op.join(folder, 'audio_voxel2623_mean25v.npy')
+
+#voxel_fn = op.join(folder, 'audio_voxel272.npy')
+voxel_fn = op.join(folder, 'audio_voxel272_mean7v.npy')
+#voxel_fn = op.join(folder, 'audio_voxel272_mean25v.npy')
 
 # VISUAL region voxel, and mean over 7 or 25 voxels around
 #voxel_fn = op.join(folder, 'visual_voxel81.npy')
@@ -87,6 +91,11 @@ corr_glm = np.corrcoef(ys_pred_glm, ys)[1, 0]
 
 print "corr glm: %s, corr gp: %s" % (corr_glm, corr_gp)
 
+output_file_base = voxel_fn[:-4]
+hrf_file_base = output_file_base + "_hrf_gp_{:1.3f}_glm_{:1.3f}".format(corr_gp, corr_glm)
+timecourse_file_base = output_file_base + "_tc_gp_{:1.3f}_glm_{:1.3f}".format(corr_gp, corr_glm)
+
+
 # Plot HRF
 import matplotlib.pyplot as plt
 plt.figure(1)
@@ -97,12 +106,21 @@ plt.plot(x_0, hrf_0, label='glover HRF')
 plt.axis('tight')
 plt.legend()
 
+plt.savefig(hrf_file_base + ".png")
+plt.savefig(hrf_file_base + ".pdf")
+plt.savefig(hrf_file_base + ".svg")
+
 # Plot predicted signal
 plt.figure(2)
 plt.plot(ys, 'r', label='acquired')
 plt.plot(ys_pred, 'b', label='predicted GP')
 nm = ys_pred_glm.max() / ys_pred.max()
-plt.plot(ys_pred_glm/nm, 'g', label='predicted GLM')
+plt.plot(ys_pred_glm, 'g', label='predicted GLM')
 plt.axis('tight')
 plt.legend()
+
+plt.savefig(timecourse_file_base + ".png")
+plt.savefig(timecourse_file_base + ".pdf")
+plt.savefig(timecourse_file_base + ".svg")
+
 plt.show()
