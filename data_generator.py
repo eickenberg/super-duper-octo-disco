@@ -7,10 +7,137 @@ from scipy.ndimage.filters import gaussian_filter1d
 from scipy.interpolate import interp1d
 from nistats.experimental_paradigm import check_paradigm
 from nistats.design_matrix import (make_design_matrix, full_rank, _make_drift)
-from gp import (_get_design_from_hrf_measures,
-                _get_hrf_measurements, _get_hrf_model)
+from nistats.hemodynamic_models import (spm_hrf, glover_hrf, _resample_regressor,
+                                        _gamma_difference_hrf)
+from hrf import bezier_hrf, physio_hrf
+from paradigm import _sample_condition
 
 
+# XXX putting this here, just because now we are calling
+# make_design_matrix_hrf, which is here
+###############################################################################
+# HRF utils
+###############################################################################
+def _get_hrf_measurements(paradigm, modulation=None, hrf_length=32., t_r=2,
+                          time_offset=10, zeros_extremes=False,
+                          frame_times=None):
+    """This function:
+    Parameters
+    ----------
+    paradigm : paradigm type
+    hrf_length : float
+    t_r : float
+    time_offset : float
+    zeros_extremes : bool
+
+    Returns
+    -------
+    hrf_measurement_points : list of list
+    visible events : list of list
+    etas : list of list
+    beta_indices : list of list
+    unique_events : array-like
+    """
+    if modulation is None:
+        names, onsets, durations, modulation = check_paradigm(paradigm)
+    else:
+       names, onsets, durations, _ = check_paradigm(paradigm)
+
+    if frame_times is None:
+        frame_times = np.arange(0, onsets.max() + time_offset, t_r)
+
+    time_differences = frame_times[:, np.newaxis] - onsets
+    scope_masks = (time_differences > 0) & (time_differences < hrf_length)
+    belong_to_measurement, which_event = np.where(scope_masks)
+
+    unique_events, event_type_indices = np.unique(names, return_inverse=True)
+
+    if zeros_extremes:
+        lft = len(frame_times) + 2
+    else:
+        lft = len(frame_times)
+    hrf_measurement_points = [list() for _ in range(lft)]
+    etas = [list() for _ in range(lft)]
+    beta_indices = [list() for _ in range(lft)]
+    visible_events = [list() for _ in range(lft)]
+
+    for frame_id, event_id in zip(belong_to_measurement, which_event):
+        hrf_measurement_points[frame_id].append(time_differences[frame_id,
+                                                                 event_id])
+        etas[frame_id].append(modulation[event_id])
+        beta_indices[frame_id].append(event_type_indices[event_id])
+        visible_events[frame_id].append(event_id)
+
+    if zeros_extremes:
+        # we add first and last point of the hrf
+        hrf_measurement_points[frame_id + 1].append(0.)
+        etas[frame_id + 1].append(modulation[event_id])
+        beta_indices[frame_id + 1].append(event_type_indices[event_id])
+        visible_events[frame_id + 1].append(event_id)
+        hrf_measurement_points[frame_id + 2].append(hrf_length)
+        etas[frame_id + 2].append(modulation[event_id])
+        beta_indices[frame_id + 2].append(event_type_indices[event_id])
+        visible_events[frame_id + 2].append(event_id)
+
+    return (hrf_measurement_points, visible_events, etas, beta_indices,
+            unique_events)
+
+
+def _get_design_from_hrf_measures(hrf_measures, beta_indices):
+    event_names = np.unique(np.concatenate(beta_indices)).astype('int')
+
+    design = np.zeros([len(beta_indices), len(event_names)])
+    pointer = 0
+
+    for beta_ind, row in zip(beta_indices, design):
+        measures = hrf_measures[pointer:pointer + len(beta_ind)]
+        for i, name in enumerate(event_names):
+            row[i] = measures[beta_ind == name].sum()
+
+        pointer += len(beta_ind)
+    return design
+
+
+def _get_hrf_model(hrf_model=None, hrf_length=25., dt=1., normalize=False):
+    """Returns HRF created with model hrf_model. If hrf_model is None,
+    then a vector of 0 is returned
+
+    Parameters
+    ----------
+    hrf_model: str
+    hrf_length: float
+    dt: float
+    normalize: bool
+
+    Returns
+    -------
+    hrf_0: hrf
+    """
+    if hrf_model == 'glover':
+        hrf_0 = glover_hrf(tr=1., oversampling=1./dt, time_length=hrf_length)
+    elif hrf_model == 'spm':
+        hrf_0 = spm_hrf(tr=1., oversampling=1./dt, time_length=hrf_length)
+    elif hrf_model == 'gamma':
+        hrf_0 = _gamma_difference_hrf(1., oversampling=1./dt, time_length=hrf_length,
+                                      onset=0., delay=6, undershoot=16., dispersion=1.,
+                                      u_dispersion=1., ratio=0.167)
+    elif hrf_model == 'bezier':
+        # Bezier curves. We can indicate where is the undershoot and the peak etc
+        hrf_0 = bezier_hrf(hrf_length=hrf_length, dt=dt, pic=[6,1], picw=2,
+                           ushoot=[15,-0.2], ushootw=3, normalize=normalize)
+    elif hrf_model == 'physio':
+        # Balloon model. By default uses the parameters of Khalidov11
+        hrf_0 = physio_hrf(hrf_length=hrf_length, dt=dt, normalize=normalize)
+    else:
+        # Mean 0 if no hrf_model is specified
+        hrf_0 = np.zeros(hrf_length/dt)
+        warnings.warn("The HRF model is not recognized, setting it to None")
+    if normalize and hrf_model is not None:
+        hrf_0 = hrf_0 / np.linalg.norm(hrf_0)
+    return hrf_0
+
+
+###############################################################################
 def generate_mask_condition(n_x=10, n_y=10, n_z=10, sigma=1., threshold=0.5,
                             seed=None):
     """
