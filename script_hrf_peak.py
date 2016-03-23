@@ -32,18 +32,19 @@ hrf_ushoot = 16.
 
 # GP parameters
 time_offset = 10
-gamma = 3.0
+gamma = 1.
 fmin_max_iter = 20
 n_restarts_optimizer = 0
 n_iter = 3
 normalize_y = False
-optimize = True
+optimize = False
 zeros_extremes = True
 
-#range_peak = np.arange(2, 8)
-range_peak = np.array([3, 8])
+range_peak = np.arange(2, 8)
+#range_peak = np.array([3, 8])
+sigma_noise = 2.
 
-for sigma_noise in np.array([2., 0.01]):
+for gamma in np.array([0.1, 1., 10., 100.]):
     if len(range_peak)==2:
         plt.figure(figsize=(8, 4))
     else:
@@ -72,7 +73,7 @@ for sigma_noise in np.array([2., 0.01]):
         scale_factor = np.linalg.norm(ys) / np.linalg.norm(noise)
         ys_acquired = ys + noise * scale_factor * sigma_noise
 
-        snr = 20 * (np.log10(np.linalg.norm(ys) / np.linalg.norm(ys - ys_acquired)))
+        snr = 20 * (np.log10(np.linalg.norm(ys_acquired) / np.linalg.norm(ys - ys_acquired)))
         print 'SNR = ', snr, ' dB'
 
 
@@ -127,7 +128,7 @@ for sigma_noise in np.array([2., 0.01]):
     fig_folder = 'images'
     if not op.exists(fig_folder): os.makedirs(fig_folder)
     fig_name = op.join(fig_folder, \
-        'results_GP_simulation_diff_hrf_peak_sigma' + str(sigma_noise))
+        'results_GP_simulation_diff_hrf_peak_sigma' + str(sigma_noise) + '_gamma' + str(gamma))
     plt.tight_layout()
     plt.savefig(fig_name + '.png', format='png')
     plt.savefig(fig_name + '.pdf', format='pdf')
