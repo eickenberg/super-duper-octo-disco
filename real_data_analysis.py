@@ -14,15 +14,18 @@ folder = 'data_example'
 #voxel_fn = op.join(folder, 'audio_voxel2623.npy')
 #voxel_fn = op.join(folder, 'audio_voxel2623_mean7v.npy')
 #voxel_fn = op.join(folder, 'audio_voxel2623_mean25v.npy')
-
 #voxel_fn = op.join(folder, 'audio_voxel272.npy')
-voxel_fn = op.join(folder, 'audio_voxel272_mean7v.npy')
+#voxel_fn = op.join(folder, 'audio_voxel272_mean7v.npy')
 #voxel_fn = op.join(folder, 'audio_voxel272_mean25v.npy')
 
 # VISUAL region voxel, and mean over 7 or 25 voxels around
 #voxel_fn = op.join(folder, 'visual_voxel81.npy')
-# voxel_fn = op.join(folder, 'visual_voxel81_mean7v.npy')
+voxel_fn = op.join(folder, 'visual_voxel81_mean7v.npy')
 # voxel_fn = op.join(folder, 'visual_voxel81_mean25v.npy')
+#voxel_fn = op.join(folder, 'visual_voxel1835.npy')
+# voxel_fn = op.join(folder, 'visual_voxel1835_mean7v.npy')
+# voxel_fn = op.join(folder, 'visual_voxel1835_mean25v.npy')
+
 
 # Paradigm file
 paradigm_fn = op.join(folder, 'onsets.csv')
@@ -115,7 +118,7 @@ plt.figure(2)
 plt.plot(ys, 'r', label='acquired')
 plt.plot(ys_pred, 'b', label='predicted GP')
 nm = ys_pred_glm.max() / ys_pred.max()
-plt.plot(ys_pred_glm, 'g', label='predicted GLM')
+plt.plot(ys_pred_glm/nm, 'g', label='predicted GLM')
 plt.axis('tight')
 plt.legend()
 

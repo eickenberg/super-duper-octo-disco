@@ -42,7 +42,7 @@ zeros_extremes = True
 
 range_peak = np.arange(2, 8)
 #range_peak = np.array([3, 8])
-sigma_noise = 2.
+sigma_noise = 0.01
 
 for gamma in np.array([0.1, 1., 10., 100.]):
     if len(range_peak)==2:
