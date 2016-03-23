@@ -1,4 +1,5 @@
 import numpy as np
+import sys
 
 from sklearn.base import clone
 from sklearn.gaussian_process.kernels import ConstantKernel, RBF
@@ -163,6 +164,10 @@ def alternating_optimization(paradigm, y, hrf_length=32.,
     all_thetas = []
     all_sigmas_squared = []
     step_size = .01
+
+    y = y.view()
+    y.shape = -1,
+
     for alternating_iter in range(n_alternations):
         hrf_measures_, ll, ll_gradient, looe = get_hrf_measures(y, betas, hrf_kernel_matrix,
                                                                 mean_vector, sigma_squared,
@@ -199,7 +204,7 @@ def alternating_optimization(paradigm, y, hrf_length=32.,
                     # revert theta step
                     kernel.theta = np.log(np.maximum(np.exp(kernel.theta) - step_size * ll_gradient, 1e-4))
                     step_size *= .5
-                    print('Gradient step too large, reverting. Step size {}'.format(step_size))
+                   # print('Gradient step too large, reverting. Step size {}'.format(step_size))
 
             kernel.theta = np.log(np.maximum(np.exp(kernel.theta) + step_size * ll_gradient, 1e-4))
             if np.isnan(kernel.theta).any(): stop
@@ -209,7 +214,8 @@ def alternating_optimization(paradigm, y, hrf_length=32.,
             if np.isnan(hrf_kernel_matrix).any():
                 stop
 
-
+    sys.stdout.write('.')
+    sys.stdout.flush()
     return betas, (hrf_measurement_points, hrf_measures), all_residual_norms, all_hrf_measures, all_lls, all_gradients, all_looe, all_thetas, all_sigmas_squared
 
 
