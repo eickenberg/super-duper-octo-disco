@@ -2,6 +2,9 @@ import os.path as op
 import nibabel as nb
 import numpy as np
 
+import matplotlib
+matplotlib.use('Agg')
+
 from gp import SuperDuperGP, _get_hrf_model
 from nilearn.input_data import NiftiMasker
 from nistats.glm import FirstLevelGLM
@@ -155,4 +158,3 @@ if True:
         plt.legend()
         plt.show()
         # import pdb; pdb.set_trace()  # XXX BREAKPOINT
-
