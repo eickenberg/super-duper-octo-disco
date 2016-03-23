@@ -9,7 +9,7 @@ from scipy.sparse import coo_matrix
 from sklearn.gaussian_process.kernels import (Kernel, RBF, DotProduct,
                                               StationaryKernelMixin)
 from sklearn.gaussian_process.kernels import (ConstantKernel, Hyperparameter,
-                                              Exponentiation)
+                                              Exponentiation, Product)
 from scipy.interpolate import interp1d
 from scipy.spatial.distance import pdist, cdist, squareform
 
@@ -106,8 +106,8 @@ class HRFKernel(StationaryKernelMixin, Kernel):
         pre_cross_cov: array-like (optional)
         """
         if self.kernel is None:
-            self.kernel_ = ConstantKernel(self.sigma_0, constant_value_bounds="fixed") \
-                * RBF(self.gamma, length_scale_bounds="fixed")
+            self.kernel_ = Product(ConstantKernel(self.sigma_0, constant_value_bounds="fixed"),
+                                   RBF(self.gamma, length_scale_bounds="fixed"))
             # self.kernel_ = Kernel_hrf(self.gamma, length_scale_bounds='fixed',
             #                           sigma_0=self.sigma_0,
             #                           sigma_0_bounds='fixed')
