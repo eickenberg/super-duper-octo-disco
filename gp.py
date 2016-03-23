@@ -85,11 +85,12 @@ class SuperDuperGP(BaseEstimator, RegressorMixin):
         try:
             L = cholesky(K, lower=True)
         except LinAlgError:
-            loglikelihood = np.inf
+            # loglikelihood = -np.inf # XXX using a large number instead
+            loglikelihood = -1e6
             if K_22 is not None:
-                return (-loglikelihood, mu_m, np.zeros_like(mu_m))
+                return (loglikelihood, mu_m, np.zeros_like(mu_m))
             else:
-                return -loglikelihood, mu_m
+                return loglikelihood, mu_m
 
         if ys.ndim==2 and mu_n.ndim==1:
             mu_n = mu_n[:, np.newaxis]
@@ -174,10 +175,10 @@ class SuperDuperGP(BaseEstimator, RegressorMixin):
         # XXX this is going to be removed, only if we can split the data
         self.sigma_noise = np.sqrt(sigma_squared_resid)
 
-        return loglikelihood, (beta_values,
-                               (self.hrf_measurement_points, hrf_values, hrf_var),
-                               (residual_norm_squared, sigma_squared_resid),
-                               all_hrf_values, all_designs, all_betas)
+        return np.float64(loglikelihood), \
+            (beta_values, (self.hrf_measurement_points, hrf_values, hrf_var),
+             (residual_norm_squared, sigma_squared_resid),
+             all_hrf_values, all_designs, all_betas)
 
 
     def fit(self, ys, paradigm, initial_beta=None):
@@ -228,7 +229,6 @@ class SuperDuperGP(BaseEstimator, RegressorMixin):
                                     return_eval_cov=self.return_var)
         self.hrf_kernel.set_params(**dict(
             beta_values=initial_beta, beta_indices=beta_indices, etas=etas))
-
 
         self.visible_events_ = visible_events
         self.unique_events_ = unique_events
@@ -287,10 +287,7 @@ class SuperDuperGP(BaseEstimator, RegressorMixin):
         """
         check_is_fitted(self, "hrf_")
         names, onsets, durations, modulation = check_paradigm(paradigm)
-        exp_condition = (onsets, durations, modulation)
-
         frame_times = np.arange(0, onsets.max() + self.time_offset, self.t_r)
-
         f_hrf = interp1d(self.hx_, self.hrf_)
 
         dm = make_design_matrix_hrf(frame_times, paradigm,
@@ -301,8 +298,8 @@ class SuperDuperGP(BaseEstimator, RegressorMixin):
                                     drift_order=self.drift_order,
                                     f_hrf=f_hrf)
         # Least squares estimation
-        beta_values = np.linalg.pinv(dm).dot(ys)
-        ys_fit = dm.dot(beta_values)
+        beta_values = np.linalg.pinv(dm.values).dot(ys)
+        ys_fit = dm.values.dot(beta_values)
         # ress
         ress = ys - ys_fit
 
