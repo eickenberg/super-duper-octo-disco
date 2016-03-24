@@ -17,11 +17,32 @@ folder0 = 'data_example'
 studies = [
     'audioD_voxel743_mean1v', 'audioD_voxel743_mean5v',
     'audioG_voxel145_mean1v', 'audioG_voxel145_mean7v',
-    'motorD_voxel638_mean1v', 'motorD_voxel638_mean6v',
-    'motorG_voxel805_mean1v', 'motorG_voxel805_mean6v',
     'visualD_voxel201_mean1v','visualD_voxel201_mean6v',
-    'visualG_voxel46_mean1v', 'visualG_voxel46_mean5v'
-]
+    'visualG_voxel46_mean1v', 'visualG_voxel46_mean5v',
+    'motorD_voxel638_mean1v', 'motorD_voxel638_mean6v',
+    'motorG_voxel805_mean1v', 'motorG_voxel805_mean6v'
+    ]
+studies = ['motorD_mean_timeseries', 'motorG_mean_timeseries']
+#'audioD_mean_timeseries', 'audioG_mean_timeseries'
+#'visualD_mean_timeseries','visualG_mean_timeseries',
+#'motorD_mean_timeseries', 'motorG_mean_timeseries'
+
+# STUDY: audioD_mean_timeseries | corr glm: 0.70 | corr gp: 0.86
+# STUDY: audioG_mean_timeseries | corr glm: 0.78 | corr gp: 0.88
+# STUDY: visualD_mean_timeseries | corr glm: 0.77 | corr gp: 0.81
+# STUDY: visualG_mean_timeseries | corr glm: 0.75 | corr gp: 0.81
+# STUDY: motorD_mean_timeseries | corr glm: 0.74 | corr gp: 0.71
+# STUDY: motorG_mean_timeseries | corr glm: 0.74 | corr gp: 0.74
+
+studies = ['audioD_mean_timeseries', 'audioG_mean_timeseries',
+           'visualD_mean_timeseries','visualG_mean_timeseries',
+           'motorD_mean_timeseries', 'motorG_mean_timeseries']
+regions = ['audio right', 'audio left', 'visual right',
+		   'visual left', 'motor right', 'motor right']
+
+#studies = ['audioD_mean_timeseries_small', 'audioG_mean_timeseries_small',
+#           'visualD_mean_timeseries_small','visualG_mean_timeseries_small',
+#           'motorD_mean_timeseries_small', 'motorG_mean_timeseries_small']
 
 # Define HRF of mean GP
 hrf_length = 32
@@ -30,11 +51,11 @@ x_0 = np.arange(0, hrf_length  + dt, dt)
 hrf_ushoot = 16.
 hrf_model = 'glover'
 hrf_0 = _get_hrf_model(hrf_model, hrf_length=hrf_length + dt,
-                    dt=dt, normalize=True)
+                    			  dt=dt, normalize=True)
 f_hrf = interp1d(x_0, hrf_0)
 
 # This is just a flag to be able to use the same script for the plotting
-if True:
+if False:
     for study in studies:
         voxel_fn = op.join(folder, study + '.npy')
         # Paradigm file
@@ -110,9 +131,6 @@ if True:
 
         np.save(op.join(folder, study + '_data.npy'), data)
 
-plt.savefig(timecourse_file_base + ".png")
-plt.savefig(timecourse_file_base + ".pdf")
-plt.savefig(timecourse_file_base + ".svg")
 
 if True:
     import matplotlib.pyplot as plt
@@ -134,6 +152,7 @@ if True:
 
         hy *= np.sign(hy[np.argmax(np.abs(hy))]) / np.abs(hy).max()
         hrf_0 /= hrf_0.max()
+
         # Plot HRF
         plt.figure(1)
         plt.fill_between(hx, hy - 1.96 * np.sqrt(hrf_var),
@@ -142,10 +161,16 @@ if True:
         plt.plot(x_0, hrf_0, label='glover HRF')
         plt.axis('tight')
         plt.legend()
+        fname = op.join(folder, study + "_hrf")
+        plt.savefig(fname + ".png")
+        plt.savefig(fname + ".pdf")
+        plt.savefig(fname + ".svg")
+        plt.close()
 
         # Plot predicted signal
         plt.figure(2)
-        plt.plot(ys, 'r', label='acquired')
+        nm = np.abs([ys.max(), ys.min()]).max()
+        plt.plot(ys/nm, 'r', label='acquired')
         nm = np.abs([ys_pred.max(), ys_pred.min()]).max()
         plt.plot(ys_pred/nm, 'b', label='predicted GP')
         nm = np.abs([ys_pred_glm.max(), ys_pred_glm.min()]).max()
@@ -153,4 +178,12 @@ if True:
         plt.axis('tight')
         plt.legend()
         plt.show()
+        fname = op.join(folder, study + "_fitting")
+        plt.savefig(fname + ".png")
+        plt.savefig(fname + ".pdf")
+        plt.savefig(fname + ".svg")
+        plt.close()
+
         # import pdb; pdb.set_trace()  # XXX BREAKPOINT
+
+

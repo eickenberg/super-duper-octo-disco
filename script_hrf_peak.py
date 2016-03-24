@@ -11,6 +11,25 @@ from gp import SuperDuperGP, _get_hrf_model
 from nistats.hemodynamic_models import spm_hrf, glover_hrf, _gamma_difference_hrf
 from hrf import bezier_hrf, physio_hrf
 
+import seaborn as sns
+from matplotlib import rc
+rc('axes', labelsize=32)
+rc('xtick', labelsize=32)
+rc('ytick', labelsize=32)
+rc('legend', fontsize=32)
+rc('axes', titlesize=32)
+rc('lines', linewidth=1)
+# rc('figure', figsize=(18, 10))
+rc('text', usetex=False)
+rc('font', family='sans-serif')
+rc('mathtext', default='regular')
+
+from matplotlib.ticker import FuncFormatter
+def add_s(x, pos):
+    return '%s s' %s
+formatter = FuncFormatter(add_s)
+
+
 
 seed = 42
 rng = check_random_state(seed)
@@ -37,14 +56,14 @@ fmin_max_iter = 20
 n_restarts_optimizer = 0
 n_iter = 3
 normalize_y = False
-optimize = False
+optimize = True
 zeros_extremes = True
 
 range_peak = np.arange(2, 8)
-#range_peak = np.array([3, 8])
+range_peak = np.array([3, 8])
 sigma_noise = 0.01
 
-for gamma in np.array([0.1, 1., 10., 100.]):
+for sigma_noise in np.array([0.01]):
     if len(range_peak)==2:
         plt.figure(figsize=(8, 4))
     else:
@@ -104,8 +123,8 @@ for gamma in np.array([0.1, 1., 10., 100.]):
             plt.subplot(2, 2, i + 1)
             plt.tight_layout()
         elif len(range_peak)==2:
-            plt.subplot(1, 2, i + 1)
-            plt.tight_layout()
+            ax = plt.subplot(1, 2, i + 1)
+            ax.tight_layout()
         else:
             plt.figure()
         i += 1
@@ -113,14 +132,15 @@ for gamma in np.array([0.1, 1., 10., 100.]):
             nm = hy.max()
         else:
             nm = hy.min()
-        plt.fill_between(hx, (hy - 1.96 * np.sqrt(hrf_var))/nm,
+        ax.fill_between(hx, (hy - 1.96 * np.sqrt(hrf_var))/nm,
                          (hy + 1.96 * np.sqrt(hrf_var))/nm, alpha=0.1)
-        plt.plot(hx, hy/nm, 'b', label='estimated HRF')
-        plt.plot(x_0, hrf_sim/hrf_sim.max(), 'r--', label='simulated HRF')
-        plt.plot(x_0, hrf_0/hrf_0.max(), 'k-', label='GP mean')
-        plt.title('hrf peak ' + str(hrf_peak))
-        plt.xlabel('time (sec.)')
-        plt.axis('tight')
+        ax.plot(hx, hy/nm, 'b', label='estimated HRF')
+        ax.plot(x_0, hrf_sim/hrf_sim.max(), 'r--', label='simulated HRF')
+        ax.plot(x_0, hrf_0/hrf_0.max(), 'k-', label='GP mean')
+        #plt.title('hrf peak ' + str(hrf_peak))
+        ax.xlabel('time')
+        ax.xaxis.set_major_formatter(formatter)
+        ax.axis('tight')
         if len(range_peak)==1:
             plt.legend()
 
