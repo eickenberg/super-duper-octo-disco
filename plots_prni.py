@@ -67,6 +67,31 @@ for sigma_noise in np.array([0.01, 2.]):
 # Figure 3
 ###############################################################################
 
+#A
+def k(xs, ys, gamma=1.):
+    xs, ys = map(np.atleast_1d, (xs, ys))
+    diffs_squared = (xs.reshape(-1, 1) - ys.reshape(-1)) ** 2
+    return np.exp(-diffs_squared / gamma)
+
+sim1 = k(xs, xs, gamma=.1)
+sim2 = k(xs, xs, gamma=1.)
+sim3 = k(xs, xs, gamma=10.)
+plt.subplot(1, 3, 1)
+plt.imshow(sim1)
+plt.title('$\gamma$=.1')
+plt.axis('off')
+plt.hot()
+plt.subplot(1, 3, 2)
+plt.imshow(sim2)
+plt.title('$\gamma$=1.')
+plt.axis('off')
+plt.subplot(1, 3, 3)
+plt.imshow(sim3)
+plt.title('$\gamma$=10.')
+plt.axis('off')
+
+#B
+
 plt.figure(figsize=(12, 4))
 i = 0
 
@@ -95,6 +120,7 @@ fig_name = op.join(fig_folder, \
 plt.tight_layout()
 plt.savefig(fig_name + '.pdf', format='pdf')
 plt.show()
+
 
 ###############################################################################
 # Figure 4
