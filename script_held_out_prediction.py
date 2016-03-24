@@ -41,7 +41,7 @@ paradigms, _, _, measurement_times = list(zip(*[
 
 rng = np.random.RandomState(42)
 
-noise_levels = np.array([0., .1, 1.])
+noise_levels = np.array([0., .1, 1., 2., 5., 10.])
 
 beta = rng.randn(len(event_types))
 
@@ -182,8 +182,19 @@ def get_values(simulation_peak, estimation_peak, held_out_index,
                                                 f_hrf=hrf_func)
     fitted_train_design = fitted_train_design_[event_types].values
     fitted_test_design = fitted_test_design_[event_types].values
+    ftd_sparsity = np.abs(fitted_test_design).sum(axis=0) / np.sqrt((fitted_test_design ** 2).sum(axis=0))
+    if (ftd_sparsity < 2.).any():
+        #print('Spike at sim {} est {} ho {} noise {}'.format(simulation_peak, estimation_peak, held_out_index, noise_level))
+        #print('Removing strongest entry')
+        spiking = ftd_sparsity < 2.
+        d = fitted_test_design[:, spiking]
+        location = np.abs(d).argmax(0)
+        d[location, np.arange(len(location))] = .5 * (d[location - 1, np.arange(len(location))] +
+                                                      d[location + 1, np.arange(len(location))])
+        fitted_test_design[:, spiking] = d
     reest_betas = np.linalg.pinv(fitted_train_design).dot(y_train_noisy)
-    fitted_test_pred = fitted_test_design.dot(reest_betas)
+#    fitted_test_pred = fitted_test_design.dot(reest_betas)
+    fitted_test_pred = fitted_test_design.dot(betas)
     fitted_test_resid = np.linalg.norm(y_test - fitted_test_pred) ** 2
 
     fitted_test_squashed_pred = fitted_test_design.dot(
@@ -224,8 +235,19 @@ def get_values(simulation_peak, estimation_peak, held_out_index,
                                                 f_hrf=zm_hrf_func)
     zm_fitted_train_design = zm_fitted_train_design_[event_types].values
     zm_fitted_test_design = zm_fitted_test_design_[event_types].values
+    ftd_sparsity = np.abs(zm_fitted_test_design).sum(axis=0) / np.sqrt((zm_fitted_test_design ** 2).sum(axis=0))
+    if (ftd_sparsity < 2.).any():
+        #print('Spike at sim {} est {} ho {} noise {}'.format(simulation_peak, estimation_peak, held_out_index, noise_level))
+        #print('Removing strongest entry')
+        spiking = ftd_sparsity < 2.
+        d = zm_fitted_test_design[:, spiking]
+        location = np.abs(d).argmax(0)
+        d[location, np.arange(len(location))] = .5 * (d[location - 1, np.arange(len(location))] +
+                                                      d[location + 1, np.arange(len(location))])
+        zm_fitted_test_design[:, spiking] = d
     zm_reest_betas = np.linalg.pinv(zm_fitted_train_design).dot(y_train_noisy)
-    zm_fitted_test_pred = zm_fitted_test_design.dot(zm_reest_betas)
+#    zm_fitted_test_pred = zm_fitted_test_design.dot(zm_reest_betas)
+    zm_fitted_test_pred = zm_fitted_test_design.dot(zm_betas)
     zm_fitted_test_resid = np.linalg.norm(y_test - zm_fitted_test_pred) ** 2
 
     zm_fitted_test_squashed_pred = zm_fitted_test_design.dot(
@@ -234,7 +256,9 @@ def get_values(simulation_peak, estimation_peak, held_out_index,
         y_test_new - zm_fitted_test_squashed_pred, axis=0) ** 2
 
 
-    return (y_train_norm, y_train_noisy_norm, y_test_norm, y_test_new_norm,
+    return (train_paradigm, test_paradigm,
+            beta, betas, zm_betas, reest_betas, zm_reest_betas, 
+            y_train_noisy, y_test, y_train_norm, y_train_noisy_norm, y_test_norm, y_test_new_norm,
             train_gen_resid, test_gen_resid, train_est_resid, test_est_resid,
             test_squashed_resid, fitted_train_resid, fitted_test_resid,
             fitted_test_squashed_resid, hrf_measurement_points, hrf_measures,
@@ -270,7 +294,8 @@ def reshaper(x):
     return x.reshape(len(hrf_peak_locations), len(hrf_peak_locations),
                      n_runs, len(noise_levels), -1)
 
-(y_train_norms, y_train_noisy_norms, y_test_norms, y_test_new_norms,
+(beta, betas, zm_betas, reest_betas, zm_reest_betas, 
+y_train_noisy, y_test, y_train_norms, y_train_noisy_norms, y_test_norms, y_test_new_norms,
  train_gen_resids, test_gen_resids, train_est_resids, test_est_resids,
  test_squashed_resids,fitted_train_resids, fitted_test_resids,
  fitted_test_squashed_resids,
@@ -278,9 +303,10 @@ def reshaper(x):
  zm_fitted_test_squashed_resid, zm_hrf_measurement_points, zm_hrf_measures,
  train_design_gen, test_design_gen, train_design_est, test_design_est,
  fitted_train_design, fitted_test_design, zm_fitted_train_design, zm_fitted_test_design
-) = map(reshaper, map(np.array, zip(*results)))
+) = map(reshaper, map(np.array, list(zip(*results))[2:]))
 
 
+train_paradigms, test_paradigms = list(zip(*results))[:2]
 
 
 
