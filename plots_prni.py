@@ -176,3 +176,60 @@ lgd = plt.legend([l_glm, l_gp, l_gp_zero], ['GLM', 'GP', 'zero-mean GP'],
                  ncol=3, loc=(-2., -1))
 
 fig.savefig('super_duper_diagram.pdf', bbox_inches='tight')
+
+
+
+##########################################
+# figure real data
+##########################################
+
+n_vox = 1
+studies = [ 'audioD_voxel193_mean1v', 'audioG_voxel166_mean1v',
+            'visualD_voxel18_mean1v', 'visualG_voxel111_mean1v',
+            'motorD_voxel481_mean1v', 'motorG_voxel277_mean1v' ]
+
+folder = 'results_figure4'
+regions = ['audio right', 'audio left', 'visual right',
+    'visual left', 'motor right', 'motor left']
+colors = ['b', 'c', 'r', 'm', 'g', 'lime']
+
+import matplotlib.pyplot as plt
+
+# reading the data and plotting
+for istudy, study in enumerate(studies):
+    data = np.load(op.join(folder, study + '_data.npy')).item()
+
+    ys = data['ys']
+    ys_pred_glm = data['ys_pred_glm1']
+    ys_pred_glm = data['ys_pred_glm2']
+    ys_pred = data['ys_pred_gp']
+    corr_glm1 = data['corr_glm1']
+    corr_glm2 = data['corr_glm2']
+    corr_gp = data['corr_gp']
+    hy = data['hy']
+    hx = data['hx']
+    hrf_var = data['hrf_var']
+
+    print "STUDY: %s | corr glm: %.2f | corr glm_h: %.2f | corr gp: %.2f" % \
+                    (study, corr_glm1, corr_glm2, corr_gp)
+
+    hy *= np.sign(hy[np.argmax(np.abs(hy))]) / np.abs(hy).max()
+    hrf_0 /= hrf_0.max()
+
+    # Plot HRF
+    plt.figure(1)
+    plt.fill_between(hx, hy - 1.96 * np.sqrt(hrf_var),
+                    hy + 1.96 * np.sqrt(hrf_var),
+                    color=colors[istudy], alpha=0.1)
+    plt.plot(hx, hy, color=colors[istudy], label='HRF ' + regions[istudy])
+
+    plt.hold('on')
+
+plt.plot(x_0, hrf_0, color='k', label='glover HRF')
+plt.axis('tight')
+plt.legend()
+fname = op.join(folder, "hrf_regions_joint_small_%dvoxels_gamma%d" % (n_vox, gamma))
+plt.savefig(fname + ".pdf")
+plt.savefig(fname + ".svg")
+plt.close()
+
