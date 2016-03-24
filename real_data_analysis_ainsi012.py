@@ -21,7 +21,7 @@ folder0 = 'data_example'
 
 n_vox = 1
 studies = [ 'audioD_voxel193_mean1v', 'audioG_voxel166_mean1v',
-            'visualD_voxel2_mean1v', 'visualG_voxel111_mean1v',
+            'visualD_voxel18_mean1v', 'visualG_voxel111_mean1v',
             'motorD_voxel481_mean1v', 'motorG_voxel277_mean1v' ]
 """
 n_vox = 6
@@ -169,8 +169,8 @@ if True:
 
         # Plot HRF
         plt.figure(1)
-        if regions[istudy]=='visual right':
-        	hy = - hy
+        #if regions[istudy]=='visual right':
+        #	hy = - hy
         plt.fill_between(hx, hy - 1.96 * np.sqrt(hrf_var),
                         hy + 1.96 * np.sqrt(hrf_var),
                         color=colors[istudy], alpha=0.1)

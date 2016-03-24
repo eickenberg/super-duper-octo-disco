@@ -73,7 +73,11 @@ for i in xrange(6):
 	np.save(op.join(folder, names[i] + '_mean_pvalues_005.npy'), sum_significant_voxels)
 
 	inds_mins = np.argsort(contrast_map.p_value())
-	ind_min = contrast_map.p_value().argmin()
+	#ind_min = contrast_map.p_value().argmin()
+	#if i==1 or i==2:
+	ind_min = inds_mins[1]
+	#else:
+ 	#	ind_min = inds_mins[0]
 	v1 = niimgs_detrended[:, ind_min]
 	v2 = niimgs_detrended_r2[:, ind_min]
 	np.save(op.join(folder, names[i] + '_voxelmin%d.npy' % ind_min), v1)
