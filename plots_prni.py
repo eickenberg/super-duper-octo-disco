@@ -67,6 +67,35 @@ for sigma_noise in np.array([0.01, 2.]):
 # Figure 3
 ###############################################################################
 
+plt.figure(figsize=(12, 4))
+i = 0
+
+for gamma in np.array([0.1, 1., 10.]):
+
+    hx, hy, hrf_var, _, _ = np.load(op.join(folder, 'hrf_sigmanoise%f_gamma%f.npz' % (sigma_noise, gamma)))
+    plt.subplot(1, 3, i + 1)
+    i += 1
+    plt.tight_layout()
+    if np.abs(hy.max())>np.abs(hy.min()):
+        nm = hy.max()
+    else:
+        nm = hy.min()
+    plt.fill_between(hx, (hy - 1.96 * np.sqrt(hrf_var))/nm,
+                     (hy + 1.96 * np.sqrt(hrf_var))/nm, alpha=0.1)
+    plt.plot(hx, hy/nm, 'b', label='estimated HRF')
+    plt.plot(x_0, hrf_sim/hrf_sim.max(), 'r--', label='simulated HRF')
+    plt.xlabel('time (sec.)')
+    plt.axis('tight')
+
+# Save one image per noise level, with different HRFs
+fig_folder = 'images'
+if not op.exists(fig_folder): os.makedirs(fig_folder)
+fig_name = op.join(fig_folder, \
+    'resultsG_GP_simulation_diff_hrf_peak_sigma' + str(sigma_noise) + '_gamma' + str(gamma))
+plt.tight_layout()
+plt.savefig(fig_name + '.pdf', format='pdf')
+plt.show()
+
 ###############################################################################
 # Figure 4
 ###############################################################################
