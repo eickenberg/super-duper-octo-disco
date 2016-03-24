@@ -41,7 +41,7 @@ paradigms, _, _, measurement_times = list(zip(*[
 
 rng = np.random.RandomState(42)
 
-noise_levels = np.array([0., .1, 1.])
+noise_levels = np.array([0., .1, 1., 2., 5., 10.])
 
 beta = rng.randn(len(event_types))
 
@@ -184,8 +184,8 @@ def get_values(simulation_peak, estimation_peak, held_out_index,
     fitted_test_design = fitted_test_design_[event_types].values
     ftd_sparsity = np.abs(fitted_test_design).sum(axis=0) / np.sqrt((fitted_test_design ** 2).sum(axis=0))
     if (ftd_sparsity < 2.).any():
-        print('Spike at sim {} est {} ho {} noise {}'.format(simulation_peak, estimation_peak, held_out_index, noise_level))
-        print('Removing strongest entry')
+        #print('Spike at sim {} est {} ho {} noise {}'.format(simulation_peak, estimation_peak, held_out_index, noise_level))
+        #print('Removing strongest entry')
         spiking = ftd_sparsity < 2.
         d = fitted_test_design[:, spiking]
         location = np.abs(d).argmax(0)
@@ -237,8 +237,8 @@ def get_values(simulation_peak, estimation_peak, held_out_index,
     zm_fitted_test_design = zm_fitted_test_design_[event_types].values
     ftd_sparsity = np.abs(zm_fitted_test_design).sum(axis=0) / np.sqrt((zm_fitted_test_design ** 2).sum(axis=0))
     if (ftd_sparsity < 2.).any():
-        print('Spike at sim {} est {} ho {} noise {}'.format(simulation_peak, estimation_peak, held_out_index, noise_level))
-        print('Removing strongest entry')
+        #print('Spike at sim {} est {} ho {} noise {}'.format(simulation_peak, estimation_peak, held_out_index, noise_level))
+        #print('Removing strongest entry')
         spiking = ftd_sparsity < 2.
         d = zm_fitted_test_design[:, spiking]
         location = np.abs(d).argmax(0)
