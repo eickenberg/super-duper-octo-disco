@@ -6,15 +6,17 @@ import seaborn as sns
 from matplotlib import rc
 from matplotlib.ticker import FuncFormatter
 from matplotlib.patches import Rectangle
+import os
+import os.path as op
 
 sns.set_style('whitegrid',)
 # basic settings
-rc('axes', labelsize=32)
-rc('xtick', labelsize=32)
-rc('ytick', labelsize=32)
-rc('legend', fontsize=32)
+rc('axes', labelsize=28)
+rc('xtick', labelsize=28)
+rc('ytick', labelsize=28)
+rc('legend', fontsize=28)
 rc('lines', linewidth=3)
-rc('axes', titlesize=32)
+rc('axes', titlesize=28)
 rc('text', usetex=False)
 rc('font', family='sans-serif')
 rc('mathtext', default='regular')
@@ -77,8 +79,10 @@ def k(xs, ys, gamma=1.):
     diffs_squared = (xs.reshape(-1, 1) - ys.reshape(-1)) ** 2
     return np.exp(-diffs_squared / gamma)
 
+# Use the same figure
 if display_fig3:
     # A
+    xs = np.arange(0, 4 * np.pi, 0.01)
     sim1 = k(xs, xs, gamma=.1)
     sim2 = k(xs, xs, gamma=1.)
     sim3 = k(xs, xs, gamma=10.)
@@ -150,10 +154,10 @@ if display_fig4:
     test_proj_resid_gp_zero = f['test_projection_residuals_gp_zero']
 
     noise_levels_index = [1, 2, 3]
-    fig, axx = plt.subplots(nrows=2, ncols=3, figsize=(15, 7),
-                            sharey=True,
-                            # sharex=True
-                            )
+    fig, axx = plt.subplots(nrows=2, ncols=3, figsize=(15, 7), sharey=True,
+                            sharex=True)
+    fig.suptitle('Consistency on synthetic data', fontsize=30, y=1.05)
+
     # note: the mean(axis=2) is the folds
     # mean(axis=-1) for different noise initializations
     signal_norm = f['test_norm_squared']
@@ -162,17 +166,23 @@ if display_fig4:
     score_test_pred_resid_gp = 1. - test_pred_resid_gp / signal_norm
     score_test_pred_resid_gp_zero = 1. - test_pred_resid_gp_zero / signal_norm
 
-    # score_test_proj_resid_glm = 1. - test_proj_resid_glm / signal_norm
-    # score_test_proj_resid_gp = 1. - test_proj_resid_gp / signal_norm
-    # score_test_proj_resid_gp_zero = 1. - test_proj_resid_gp_zero / signal_norm
+    score_test_proj_resid_glm = 1. - test_proj_resid_glm / signal_norm
+
+    score_test_proj_resid_gp = np.zeros_like(test_proj_resid_gp)
+    score_test_proj_resid_gp_zero = np.zeros_like(test_proj_resid_gp_zero)
+
+    n = f['n_runs']
+    for i in np.arange(0, f['n_new_betas'] * n, n):
+        score_test_proj_resid_gp[..., i:i+n ] = 1. - test_proj_resid_gp[..., i:i+n] / signal_norm
+        score_test_proj_resid_gp_zero[..., i:i+n] = 1. - test_proj_resid_gp_zero[..., i:i+n] / signal_norm
 
     score_pred_glm = score_test_pred_resid_glm.mean(axis=-1).mean(axis=2)
     score_pred_gp = score_test_pred_resid_gp.mean(axis=-1).mean(axis=2)
     score_pred_gp_zero = score_test_pred_resid_gp_zero.mean(axis=-1).mean(axis=2)
 
-    # score_proj_glm = score_test_proj_resid_glm.mean(axis=-1).mean(axis=2)
-    # score_proj_gp = score_test_proj_resid_gp.mean(axis=-1).mean(axis=2)
-    # score_proj_gp_zero = score_test_proj_resid_gp_zero.mean(axis=-1).mean(axis=2)
+    score_proj_glm = score_test_proj_resid_glm.mean(axis=-1).mean(axis=2)
+    score_proj_gp = score_test_proj_resid_gp.mean(axis=-1).mean(axis=2)
+    score_proj_gp_zero = score_test_proj_resid_gp_zero.mean(axis=-1).mean(axis=2)
 
     formatter = FuncFormatter(add_s)
     for col, j in enumerate(noise_levels_index):
@@ -181,29 +191,28 @@ if display_fig4:
         axx[0, col].plot(score_pred_gp_zero[:, 0, ..., j], 'b')
         axx[0, col].set_title('noise = %s' % j)
 
-        # axx[1, col].plot(score_proj_glm[..., j], 'r')
-        # axx[1, col].plot(score_proj_gp[..., j], 'g')
-        # axx[1, col].plot(score_proj_gp_zero[:, 0, ..., j], 'b')
+        axx[1, col].plot(score_proj_glm[..., j], 'r')
+        axx[1, col].plot(score_proj_gp[..., j], 'g')
+        axx[1, col].plot(score_proj_gp_zero[:, 0, ..., j], 'b')
 
         axx[0, col].set_title('noise = %s' % noise_levels[j])
-        axx[1, col].set_ylim([0, 1.])
-        # axx[0, col].set_ylim([1e-6, 1e-3])
-        # plt.setp(axx[1, col], xticks=range(hrf_peak_location.shape[0]),
-        #          xticklabels=hrf_peak_location)
-        # axx[1, col].xaxis.set_major_formatter(formatter)
-        # axx[1, col].set_xlabel('HRF peak location \n for generation')
-        # axx[0, col].set_yscale('log')
 
-    axx[0, 0].set_ylabel('Residual error')
-    axx[1, 0].set_ylabel('Residual error')
+        axx[0, col].set_ylim([0, 1.])
+        axx[1, col].set_ylim([0, 1.])
+
+        plt.setp(axx[1, col], xticks=range(hrf_peak_location.shape[0]),
+                 xticklabels=[add_s(t, None) for t in hrf_peak_location])
+        axx[1, col].set_xlabel('HRF peak location \n for generation')
+
+    axx[0, 0].set_ylabel('Explained \n variance: \n Predicted')
+    axx[1, 0].set_ylabel('Explained \n variance: \n Projected')
 
     l_glm = Rectangle((0, 0), 1, 1, fc='r', alpha=0.8, edgecolor='.8')
     l_gp = Rectangle((0, 0), 1, 1, fc='g', alpha=0.8, edgecolor='.8')
     l_gp_zero = Rectangle((0, 0), 1, 1, fc='b', alpha=0.8, edgecolor='.8')
 
     lgd = plt.legend([l_glm, l_gp, l_gp_zero], ['GLM', 'GP', 'zero-mean GP'],
-                    ncol=3, loc=(-2.5, -1))
-
+                    ncol=3, loc=(-2., -0.9))
 
     fig.savefig('images/super_duper_diagram.pdf', bbox_inches='tight')
     fig.savefig('images/super_duper_diagram.png', bbox_inches='tight')
