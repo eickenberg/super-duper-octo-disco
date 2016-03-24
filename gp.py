@@ -277,12 +277,13 @@ class SuperDuperGP(BaseEstimator, RegressorMixin):
         residual_norm_squared = output[2][0]
         sigma_squared_resid = output[2][1]
 
+        self.beta = output[1][0]
         self.hx_ = hx
         self.hrf_ = hy
         self.hrf_var_ = hrf_var
         return (hx, hy, hrf_var, residual_norm_squared, sigma_squared_resid)
 
-    def predict(self, ys, paradigm):
+    def predict(self, ys, paradigm, use_beta=True):
         """
         """
         check_is_fitted(self, "hrf_")
@@ -298,7 +299,10 @@ class SuperDuperGP(BaseEstimator, RegressorMixin):
                                     drift_order=self.drift_order,
                                     f_hrf=f_hrf)
         # Least squares estimation
-        beta_values = np.linalg.pinv(dm.values).dot(ys)
+        if use_beta:
+            beta_values = self.beta
+        else:
+            beta_values = np.linalg.pinv(dm.values).dot(ys)
         ys_fit = dm.values.dot(beta_values)
         # ress
         ress = ys - ys_fit
