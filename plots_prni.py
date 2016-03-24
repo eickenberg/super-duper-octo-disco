@@ -90,8 +90,8 @@ plt.imshow(sim3)
 plt.title('$\gamma$=10.')
 plt.axis('off')
 
-#B
 
+#B
 plt.figure(figsize=(12, 4))
 i = 0
 
