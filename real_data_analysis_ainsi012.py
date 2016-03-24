@@ -114,18 +114,25 @@ if True:
         norm_resid2 = (np.linalg.norm(glm.results_[0][0].resid, axis=0)**2).mean()
         ys_pred_glm2 = glm.results_[0][0].predicted[:, 0]
 
+        betaglm = np.linalg.pinv(dm).dot(ys)
+        ys_pred_train = dm.dot(betaglm)
+        resid =(ys_pred_train - ys) ** 2
+
         corr_gp = np.corrcoef(ys_pred, ysr2)[1, 0]
         corr_glm1 = np.corrcoef(ys_pred_glm1, ysr2)[1, 0]
         corr_glm2 = np.corrcoef(ys_pred_glm2, ysr2)[1, 0]
+        corr_glm0 = np.corrcoef(ys_pred_train, ys)[1, 0]
 
-        print "corr glm1: %s, corr glm2: %s, corr gp: %s" % (corr_glm1, corr_glm2, corr_gp)
+        print "corr glm1: %s, corr glm2: %s, corr gp: %s, corr glm0: %s" % (corr_glm1, corr_glm2, corr_gp, corr_glm0)
 
         data = {}
         data['ys'] = ys
         data['study'] = study
+        data['ys_pred_train'] = ys_pred_train
         data['ys_pred_glm1'] = ys_pred_glm1
         data['ys_pred_glm2'] = ys_pred_glm2
         data['ys_pred_gp'] = ys_pred
+        data['corr_glm0'] = corr_glm0
         data['corr_glm1'] = corr_glm1
         data['corr_glm2'] = corr_glm2
         data['corr_gp'] = corr_gp
@@ -151,9 +158,11 @@ if True:
         data = np.load(op.join(folder, study + '_data.npy')).item()
 
         ys = data['ys']
-        ys_pred_glm = data['ys_pred_glm1']
-        ys_pred_glm = data['ys_pred_glm2']
+        ys_glm0 = data['ys_pred_train']
+        ys_pred_glm1 = data['ys_pred_glm1']
+        ys_pred_glm2 = data['ys_pred_glm2']
         ys_pred = data['ys_pred_gp']
+        corr_glm0 = data['corr_glm0']
         corr_glm1 = data['corr_glm1']
         corr_glm2 = data['corr_glm2']
         corr_gp = data['corr_gp']
@@ -161,8 +170,8 @@ if True:
         hx = data['hx']
         hrf_var = data['hrf_var']
 
-        print "STUDY: %s | corr glm: %.2f | corr glm_h: %.2f | corr gp: %.2f" % \
-        				(study, corr_glm1, corr_glm2, corr_gp)
+        print "STUDY: %s | corr glm: %.2f | corr glm_h: %.2f | corr gp: %.2f | corr glm_train: %.2f" % \
+        				(study, corr_glm1, corr_glm2, corr_gp, corr_glm0)
 
         hy *= np.sign(hy[np.argmax(np.abs(hy))]) / np.abs(hy).max()
         hrf_0 /= hrf_0.max()
