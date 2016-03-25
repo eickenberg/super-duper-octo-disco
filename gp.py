@@ -158,7 +158,10 @@ class SuperDuperGP(BaseEstimator, RegressorMixin):
             design = _get_design_from_hrf_measures(hrf_values,
                                                    self.beta_indices_)
             # Least squares estimation
+            print design.shape
+            print self.y_train.shape
             beta_values = np.linalg.pinv(design).dot(self.y_train)
+
 
             all_hrf_values.append(hrf_values)
             all_hrf_var.append(hrf_var)
@@ -174,6 +177,7 @@ class SuperDuperGP(BaseEstimator, RegressorMixin):
 
         # XXX this is going to be removed, only if we can split the data
         self.sigma_noise = np.sqrt(sigma_squared_resid)
+        print beta_values.shape
 
         return np.float64(loglikelihood), \
             (beta_values, (self.hrf_measurement_points, hrf_values, hrf_var),
@@ -277,7 +281,7 @@ class SuperDuperGP(BaseEstimator, RegressorMixin):
         residual_norm_squared = output[2][0]
         sigma_squared_resid = output[2][1]
 
-        self.beta = output[1][0]
+        self.beta = output[0]
         self.hx_ = hx
         self.hrf_ = hy
         self.hrf_var_ = hrf_var
@@ -303,8 +307,11 @@ class SuperDuperGP(BaseEstimator, RegressorMixin):
             beta_values = self.beta
         else:
             beta_values = np.linalg.pinv(dm.values).dot(ys)
-        ys_fit = dm.values.dot(beta_values)
-        # ress
+        #print dm.shape
+        #print beta_values.shape
+        ys_fit = dm.values[:, :len(beta_values)].dot(beta_values)
+        #ys -= drifts.dot(np.linalg.pinv(drifts).dot(ys))
+
         ress = ys - ys_fit
 
         return ys_fit, dm, beta_values, ress
