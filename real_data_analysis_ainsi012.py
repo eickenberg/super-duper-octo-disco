@@ -8,6 +8,7 @@ matplotlib.use('Agg')
 from gp import SuperDuperGP, _get_hrf_model
 from nilearn.input_data import NiftiMasker
 from nistats.glm import FirstLevelGLM
+from nistats.design_matrix import _make_drift
 from nistats import experimental_paradigm, design_matrix
 from scipy.interpolate import interp1d
 
@@ -50,8 +51,8 @@ if True:
         ########################################################################
         # Load data and parameters
         t_r = 3.
-        ys = np.load(voxel_fn)
-        ysr2 = np.load(voxel_r2_fn)
+        ys_ = np.load(voxel_fn)
+        ysr2_ = np.load(voxel_r2_fn)
         n_scans = ys.shape[0]
 
         # Create design matrix
@@ -59,6 +60,10 @@ if True:
         paradigm = experimental_paradigm.paradigm_from_csv(paradigm_fn)
         dm = design_matrix.make_design_matrix(frametimes, paradigm=paradigm)
         modulation = np.array(paradigm)[:, 4]
+
+        drifts = _make_drift('cosine', frame_times)
+        ys = ys_ - drifts.dot(np.linalg.pinv(drifts).dot(ys_))
+        ysr2 = ysr2_ - drifts.dot(np.linalg.pinv(drifts).dot(ysr2_))
 
         # GP parameters
         time_offset = 6
